@@ -6,6 +6,8 @@ No keywords, no forms, nothing to set up. Every call on every tweet is made by [
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAIsa-team%2Fworth-replying&env=AISA_API_KEY&envDescription=AIsa%20reads%20the%20site%20and%20searches%20X.%20The%20AI%20Gateway%20needs%20no%20key%20on%20Vercel.&envLink=https%3A%2F%2Fgithub.com%2FAIsa-team%2Fworth-replying%23environment-variables&project-name=worth-replying&repository-name=worth-replying)
 
+> **Built on [AIsa](https://aisa.one)** — the unified resource and transaction network for AI agents. Everything this app knows about the outside world — the website it reads, the tweets it searches — comes through one AIsa key. [More below ↓](#about-aisa)
+
 ## How it works
 
 ```mermaid
@@ -41,6 +43,29 @@ jev is asked these about every tweet, in a single request:
 
 The thresholds live in [`lib/decision.ts`](lib/decision.ts) and are shared by the server, which routes on them, and the console, which draws them as the tick on each track. The rubric and the wording of each question are in [`lib/server/jev.ts`](lib/server/jev.ts).
 
+## About AIsa
+
+[**AIsa**](https://aisa.one) is the unified resource and transaction network for AI agents: one account and one key for discovering, calling, and paying for models, APIs, real-time data, and tools — 950+ APIs behind a single surface, billed per call.
+
+This project is a small, complete example of what that buys you. It needs two very different kinds of data — a crawl of an arbitrary website, and a live search of X — which would normally mean two providers, two keys, two billing relationships and two sets of quirks. Here it is one client in [`lib/server/aisa.ts`](lib/server/aisa.ts), about two hundred lines:
+
+| What the app needs | AIsa endpoint | |
+| --- | --- | --- |
+| Read a company's site | `POST /tavily/crawl`, `/tavily/extract` | pages as clean markdown |
+| Find the conversations | `GET /twitter/tweet/advanced_search` | tweets with authors, newest first |
+| Know what it cost | every response | the real charge, in the `x-aisa-customer-cost-micros-usd` header |
+
+That last row is why the running ledger and the daily budget in this app are exact rather than estimated: every AIsa response says what it cost.
+
+The same key reaches a lot more than this demo uses:
+
+- **Models** — an OpenAI-compatible gateway to the major model families.
+- **Data APIs** — web and news search, X/Twitter, Reddit, YouTube, company and people data, financial and market data, academic search, prediction markets.
+- **MCP** — one endpoint, `https://mcp.aisa.one/mcp`, puts the whole catalogue in front of an agent, with the price of each call available before it is made. The `gtm` module is the go-to-market set: people and company search, creator discovery, and social listening — the natural next step for a tool like this one.
+- **Machine payments** — agents can discover and pay for capabilities programmatically, including pay-per-call over x402.
+
+Start here: [aisa.one](https://aisa.one) · [Docs](https://aisa.one/docs) · [API reference](https://aisa.one/docs/api-reference) · [MCP catalogue](https://mcp.aisa.one/servers)
+
 ## Quick start
 
 Requires **Node 22+** and **pnpm**.
@@ -59,7 +84,7 @@ Open <http://localhost:3000>. For a cheap first run, add `?target=40` to the run
 
 | Variable | Required | Default | |
 | --- | --- | --- | --- |
-| `AISA_API_KEY` | yes | — | [AIsa](https://aisa.one) key: reads the website and searches X. |
+| `AISA_API_KEY` | yes | — | [AIsa](https://aisa.one) key: reads the website and searches X. Sign up at [aisa.one](https://aisa.one). |
 | `AI_GATEWAY_API_KEY` | locally | — | [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) key: the language model and jev. On Vercel it is not needed — deployments authenticate to the gateway by OIDC. |
 | `LLM_MODEL` | no | `anthropic/claude-sonnet-5` | Writes the profile and the searches. Any gateway language model id. |
 | `JEV_MODEL` | no | `typesafe-ai/jev` | Scores each tweet. |
@@ -165,4 +190,4 @@ Issues and pull requests are welcome. `pnpm build` type-checks the project; plea
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — made by the team at [AIsa](https://aisa.one).
