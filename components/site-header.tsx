@@ -10,23 +10,32 @@ function SiteHeader({ className, children }: React.ComponentProps<"header">) {
   return (
     <header
       className={cn(
-        "flex shrink-0 items-center gap-3.5 border-b border-border px-5 py-3 md:h-12 md:py-0 md:px-10",
+        "flex shrink-0 flex-wrap items-center gap-3.5 border-b border-border px-5 py-3 md:h-12 md:flex-nowrap md:py-0 md:px-10",
         className,
       )}
     >
-      <Link
-        href="/"
-        className="flex shrink-0 items-center gap-2.5 font-mono text-[11.5px] font-medium tracking-[0.22em] text-foreground transition-colors hover:text-primary"
+      <div
+        className="flex shrink-0 items-center gap-2.5 font-mono text-[11.5px] font-medium tracking-[0.22em] text-foreground"
       >
-        <Image
-          src="/icon.svg"
-          alt="AIsa"
-          width={83}
-          height={98}
-          className="h-6 w-auto shrink-0"
-        />
-        WORTH REPLYING
-      </Link>
+        <a
+          href="https://aisa.one/"
+          title="Visit AIsa website"
+          className="flex items-center gap-2.5 text-sm tracking-normal transition-colors hover:text-primary"
+        >
+          <Image
+            src="/icon.svg"
+            alt=""
+            width={83}
+            height={98}
+            className="h-6 w-auto shrink-0"
+          />
+          <span>AIsa</span>
+        </a>
+        <span aria-hidden className="h-[15px] w-px bg-border" />
+        <Link href="/" className="transition-colors hover:text-primary">
+          WORTH REPLYING
+        </Link>
+      </div>
       {children}
     </header>
   );
