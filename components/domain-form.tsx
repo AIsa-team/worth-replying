@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DEFAULT_DOMAIN } from "@/lib/domain";
 
-const SUGGESTIONS = ["aisa.one", "typesafe.ai", "resend.com"];
+const SUGGESTIONS = [DEFAULT_DOMAIN, "aisa.one", "resend.com"];
 
 /** Strip the scheme and any path so the field always holds a bare host. */
 function normalize(value: string) {
@@ -17,7 +18,7 @@ function normalize(value: string) {
 
 function DomainForm() {
   const router = useRouter();
-  const [domain, setDomain] = useState("aisa.one");
+  const [domain, setDomain] = useState(DEFAULT_DOMAIN);
 
   function go(value: string) {
     const host = normalize(value);

@@ -11,43 +11,11 @@ import {
   type RunFrame,
   type RunState,
 } from "@/lib/run-frame";
+import { postNdjson } from "@/lib/ndjson";
 import type { RunEvent } from "@/lib/run-types";
 
 /** How often the console repaints. Events arrive far faster than this. */
 const PAINT_MS = 100;
-
-/** Read `/api/run`'s newline-delimited JSON, one event per line. */
-async function readEvents(
-  domain: string,
-  target: number,
-  signal: AbortSignal,
-  onEvent: (event: RunEvent) => void,
-) {
-  const res = await fetch("/api/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ domain, target }),
-    signal,
-  });
-
-  if (!res.ok || !res.body) {
-    const body = await res.json().catch(() => null);
-    throw new Error(body?.error ?? `The run could not start (${res.status}).`);
-  }
-
-  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-  let pending = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    pending += value;
-    const lines = pending.split("\n");
-    pending = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line) onEvent(JSON.parse(line) as RunEvent);
-    }
-  }
-}
 
 /**
  * Starts a run for `domain` on mount and returns the frame to draw, plus a
@@ -83,16 +51,20 @@ function useRun(domain: string, target: number) {
     // Deferred a tick so that Strict Mode's mount–unmount–mount in development
     // cancels the first attempt before it ever reaches the server.
     const begin = setTimeout(() => {
-      readEvents(domain, target, controller.signal, fold).then(
+      postNdjson("/api/run", { domain, target }, controller.signal, fold).then(
         () => {
           // The stream closing without a verdict means the connection dropped.
           if (isRunning(state)) {
-            fold({ type: "error", message: "The connection to the run was lost." });
+            fold({
+              type: "error",
+              message: "The connection to the run was lost.",
+            });
           }
         },
         (error: unknown) => {
           if (controller.signal.aborted) return;
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           fold({ type: "error", message });
         },
       );

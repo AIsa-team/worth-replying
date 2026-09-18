@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "cn";
+import { Avatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { useRun } from "@/components/use-run";
 import type { Brief, SignalRow } from "@/lib/run-frame";
@@ -75,9 +76,7 @@ function BriefCard({ brief }: { brief: Brief }) {
       style={{ opacity: brief.opacity }}
     >
       <div className="flex items-center gap-1.5">
-        <span className="flex size-[17px] shrink-0 items-center justify-center rounded-full border border-border bg-secondary font-mono text-[7px] text-muted-foreground">
-          {brief.ini}
-        </span>
+        <Avatar face={brief.face} px={17} />
         <span className="font-mono text-[9.5px]">{brief.handle}</span>
         <span className="grow" />
         <span className={cn("size-2 shrink-0 rounded-full", brief.dot)} />
@@ -163,9 +162,7 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
             {f.lead ? (
               <>
                 <div className="flex items-center gap-[9px]">
-                  <span className="flex size-[30px] shrink-0 items-center justify-center rounded-full border border-border bg-secondary font-mono text-[10px] text-muted-foreground">
-                    {f.lead.ini}
-                  </span>
+                  <Avatar key={f.lead.face.id} face={f.lead.face} px={30} />
                   <div className="flex flex-col gap-px">
                     <a
                       href={f.lead.url}
@@ -323,17 +320,9 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
               EVERYONE WHO CAME PAST
             </span>
             <div className="h-[30px] grow overflow-hidden" aria-hidden>
-              <div className="flex w-max gap-1.5">
-                {f.ticker.map((v, i) => (
-                  <span
-                    key={i}
-                    className={cn(
-                      "flex size-6 shrink-0 items-center justify-center rounded-full font-mono text-[7px]",
-                      v.cls,
-                    )}
-                  >
-                    {v.ini}
-                  </span>
+              <div className="flex h-full w-max items-center gap-1.5 pl-0.5">
+                {f.ticker.map((face) => (
+                  <Avatar key={face.id} face={face} px={24} />
                 ))}
               </div>
             </div>

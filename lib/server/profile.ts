@@ -9,8 +9,9 @@ import type {
   Tweet,
 } from "@/lib/run-types";
 import { crawlSite, extractPages, searchTweets } from "./aisa";
-import { assertBudget, spend } from "./budget";
+import { assertBudget, spend, spendData } from "./budget";
 import { clipSite, writeProfile, writeQueries } from "./llm";
+import { report, settle } from "./progress";
 
 const DAY_MS = 86_400_000;
 const WINDOW_DAYS = 7;
@@ -39,28 +40,36 @@ async function readSite(domain: string): Promise<SiteRead> {
   assertBudget();
   const started = performance.now();
 
-  let { data: pages, cost } = await crawlSite(domain);
-  spend(cost);
+  const crawl = await crawlSite(domain);
+  spendData(crawl.cost);
+  let pages = crawl.data;
 
   // Some sites give a crawler nothing to walk; the homepage alone will do.
   if (pages.length === 0) {
     const homepage = await extractPages([`https://${domain}`]);
-    spend(homepage.cost);
+    spendData(homepage.cost);
     pages = homepage.data;
-    cost += homepage.cost;
   }
   if (pages.length === 0) throw new UnreadableSiteError(domain);
 
   const site = clipSite(pages);
-  const written = await writeProfile(domain, site);
+  const sources = site.map((page) => ({
+    path: new URL(page.url).pathname,
+    characters: page.content.length,
+  }));
+  report(domain, { type: "pages", pages: sources });
+
+  const written = await writeProfile(domain, site, (draft) =>
+    report(domain, { type: "profile", draft }),
+  );
   spend(written.cost);
 
   return {
     profile: written.profile,
-    pages: site.length,
-    characters: site.reduce((sum, page) => sum + page.content.length, 0),
+    pages: sources,
+    characters: sources.reduce((sum, page) => sum + page.characters, 0),
     seconds: (performance.now() - started) / 1000,
-    cost: cost + written.cost,
+    cost: written.cost,
   };
 }
 
@@ -82,31 +91,30 @@ function volume(tweets: Tweet[], exhausted: boolean): string {
 
 export async function planSearch(profile: Profile): Promise<SearchPlan> {
   assertBudget();
-  const written = await writeQueries(profile);
+  const { domain } = profile;
+  const written = await writeQueries(profile, (draft) =>
+    report(domain, { type: "queries", draft }),
+  );
   spend(written.cost);
 
   // One page per query: enough to measure the rate, and to catch a query
   // that returns nothing before a whole run is spent on it.
-  let cost = written.cost;
   const queries = await Promise.all(
-    written.queries.map(async ({ q, k }): Promise<Query> => {
+    written.queries.map(async ({ q, k }, index): Promise<Query> => {
+      let n = "not measured";
       try {
         const sample = await searchTweets(searchString(q));
-        spend(sample.cost);
-        cost += sample.cost;
-        return {
-          q,
-          k,
-          n: volume(sample.data.tweets, sample.data.nextCursor === null),
-        };
+        spendData(sample.cost);
+        n = volume(sample.data.tweets, sample.data.nextCursor === null);
       } catch (error) {
         console.warn(`Volume sample failed for ${q}:`, error);
-        return { q, k, n: "not measured" };
       }
+      report(domain, { type: "sample", index, n });
+      return { q, k, n };
     }),
   );
 
-  return { queries, filter: QUERY_FILTER, cost };
+  return { queries, filter: QUERY_FILTER, cost: written.cost };
 }
 
 /* ── Caching ─────────────────────────────────────────────────────────────── */
@@ -136,14 +144,14 @@ const plans = (inflight.__plans ??= new Map());
  */
 const cachedRead = unstable_cache(
   (domain: string) => readSite(domain),
-  ["site-read-v1"],
+  ["site-read-v4"],
   { revalidate: REVALIDATE_SECONDS },
 );
 
 // Keyed on the profile itself: a site that reads differently gets new searches.
 const cachedPlan = unstable_cache(
   (profile: Profile) => planSearch(profile),
-  ["search-plan-v1"],
+  ["search-plan-v4"],
   { revalidate: REVALIDATE_SECONDS },
 );
 
@@ -151,26 +159,38 @@ function shared<T>(
   map: Map<string, Promise<T>>,
   key: string,
   load: () => Promise<T>,
+  landed: () => void,
 ): Promise<T> {
   let pending = map.get(key);
   if (!pending) {
     pending = load();
     map.set(key, pending);
     // Only the flight is shared here; once it lands, the data cache answers.
-    const clear = () => map.delete(key);
+    const clear = () => {
+      map.delete(key);
+      landed();
+    };
     pending.then(clear, clear);
   }
   return pending;
 }
 
 export function getSiteRead(domain: string): Promise<SiteRead> {
-  return shared(reads, domain, () => cachedRead(domain));
+  return shared(
+    reads,
+    domain,
+    () => cachedRead(domain),
+    () => settle(domain, ["pages", "profile"]),
+  );
 }
 
 export function getSearchPlan(domain: string): Promise<SearchPlan> {
   // The read is awaited out here — a cached function calling another cached
   // function re-runs the inner one, and the site gets read (and paid for) twice.
-  return shared(plans, domain, async () =>
-    cachedPlan((await getSiteRead(domain)).profile),
+  return shared(
+    plans,
+    domain,
+    async () => cachedPlan((await getSiteRead(domain)).profile),
+    () => settle(domain, ["queries", "sample"]),
   );
 }

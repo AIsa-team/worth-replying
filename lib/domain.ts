@@ -1,5 +1,5 @@
 /** The domain every screen falls back to when the URL names none. */
-export const DEFAULT_DOMAIN = "aisa.one";
+export const DEFAULT_DOMAIN = "typesafe.ai";
 
 const HOSTNAME =
   /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;

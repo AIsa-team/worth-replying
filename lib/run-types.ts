@@ -20,12 +20,14 @@ export type Profile = {
   handle: string | null;
 };
 
+export type PageRead = { path: string; characters: number };
+
 export type SiteRead = {
   profile: Profile;
-  pages: number;
+  pages: PageRead[];
   characters: number;
   seconds: number;
-  /** Crawl plus the profile call, in USD. */
+  /** What the profile call cost, in USD. Data calls are not priced here. */
   cost: number;
 };
 
@@ -42,9 +44,27 @@ export type SearchPlan = {
   queries: Query[];
   /** Operators appended to every query when it is sent to X. */
   filter: string;
-  /** Query writing plus the volume samples, in USD. */
+  /** What writing the queries cost, in USD. Data calls are not priced here. */
   cost: number;
 };
+
+/** A profile while the model is still writing it: any field may be missing. */
+export type ProfileDraft = {
+  whatYouDo?: string;
+  whoBuysIt?: (string | undefined)[];
+  whatHurts?: ({ key?: string; label?: string } | undefined)[];
+  whoElse?: (string | undefined)[];
+};
+
+/** One line of the NDJSON stream `/api/profile/stream` writes. */
+export type ProfileEvent =
+  | { type: "pages"; pages: PageRead[] }
+  | { type: "profile"; draft: ProfileDraft }
+  | { type: "read"; read: SiteRead }
+  | { type: "queries"; draft: ({ q?: string; k?: string } | undefined)[] }
+  | { type: "sample"; index: number; n: string }
+  | { type: "plan"; plan: SearchPlan }
+  | { type: "error"; message: string };
 
 export type Route = "IN THE QUEUE" | "NEEDS A HUMAN" | "ARCHIVED";
 
@@ -60,6 +80,8 @@ export type Tweet = {
     name: string;
     bio: string;
     followers: number;
+    /** Profile picture URL, or "" when X gave none. */
+    avatar: string;
   };
 };
 
@@ -92,10 +114,11 @@ export type RunEvent =
       target: number;
       handle: string | null;
       queries: string[];
-      /** Everything spent before the first search: site read and the plan. */
+      /** Model spend before the first search: the profile, then the queries. */
       profileCost: number;
+      queriesCost: number;
     }
-  | { type: "search"; query: number; found: number; fresh: number; cost: number }
+  | { type: "search"; query: number; found: number; fresh: number }
   | ({ type: "decision" } & Decision)
   | { type: "skipped"; id: string; reason: string }
   | { type: "done"; reason: "complete" | "exhausted" | "budget" }

@@ -85,20 +85,35 @@ type ExtractResponse = {
   failed_results?: unknown[];
 };
 
-/** Walk a site from its root and return the pages worth reading. */
+/** Pages that say nothing about who a company sells to. */
+const SKIP_PATHS = [
+  "/legal",
+  "/privacy",
+  "/terms",
+  "/login",
+  "/signin",
+  "/signup",
+  "/careers",
+  "/jobs",
+];
+
+/**
+ * Walk a site from its root and return the pages worth reading. Steering the
+ * crawl with natural-language `instructions` was tried and dropped: on small
+ * sites it filtered out everything but the homepage.
+ */
 export async function crawlSite(
   domain: string,
-  { limit = 5, signal }: { limit?: number; signal?: AbortSignal } = {},
+  { limit = 6, signal }: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<Costed<SitePage[]>> {
   const { data, cost } = await call<CrawlResponse>("/tavily/crawl", {
     method: "POST",
     body: {
       url: `https://${domain}`,
-      instructions:
-        "Pages that explain what the product does, who it is for, pricing, use cases and how it compares to alternatives",
-      max_depth: 1,
+      max_depth: 2,
       limit,
       allow_external: false,
+      exclude_paths: SKIP_PATHS,
       format: "markdown",
     },
     signal,
@@ -142,6 +157,7 @@ type RawTweet = {
     name?: string;
     description?: string;
     followers?: number;
+    profilePicture?: string;
   };
 };
 
@@ -173,7 +189,11 @@ export async function searchTweets(
 ): Promise<Costed<TweetPage>> {
   const { data, cost } = await call<SearchResponse>(
     "/twitter/tweet/advanced_search",
-    { query: { query, queryType: "Latest", cursor }, signal, timeoutMs: 20_000 },
+    {
+      query: { query, queryType: "Latest", cursor },
+      signal,
+      timeoutMs: 20_000,
+    },
   );
 
   const tweets = (data.tweets ?? []).flatMap((t) => {
@@ -194,6 +214,7 @@ export async function searchTweets(
           name: t.author?.name ?? handle,
           bio: t.author?.description ?? "",
           followers: t.author?.followers ?? 0,
+          avatar: t.author?.profilePicture ?? "",
         },
       } satisfies Tweet,
     ];

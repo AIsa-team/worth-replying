@@ -2,9 +2,14 @@ import "server-only";
 
 import type { Profile, RunEvent, Tweet } from "@/lib/run-types";
 import { searchTweets } from "./aisa";
-import { assertBudget, overBudget, spend } from "./budget";
+import { assertBudget, overBudget, spend, spendData } from "./budget";
 import { decide } from "./jev";
-import { getSearchPlan, getSiteRead, planSearch, searchString } from "./profile";
+import {
+  getSearchPlan,
+  getSiteRead,
+  planSearch,
+  searchString,
+} from "./profile";
 
 /** Tweets one run reads. The console's "of 1,000" comes from here. */
 export const RUN_TARGET = Number(process.env.RUN_TWEET_TARGET ?? 1000);
@@ -27,7 +32,10 @@ export type RunInput = {
  * each new tweet to jev, report each decision as it lands. Aborting `signal`
  * stops new work at once; whatever was already scored has already been sent.
  */
-export function run(input: RunInput, signal: AbortSignal): AsyncIterable<RunEvent> {
+export function run(
+  input: RunInput,
+  signal: AbortSignal,
+): AsyncIterable<RunEvent> {
   const events = channel<RunEvent>();
   drive(input, signal, events.push).then(
     (reason) => {
@@ -81,7 +89,8 @@ async function drive(
     target,
     handle: profile.handle,
     queries,
-    profileCost: (read?.cost ?? 0) + (plan?.cost ?? 0),
+    profileCost: read?.cost ?? 0,
+    queriesCost: plan?.cost ?? 0,
   });
 
   // Anything fatal halts every search and every jev call still in flight.
@@ -109,7 +118,8 @@ async function drive(
         emit({ type: "decision", ...decision });
       } catch (error) {
         if (signal.aborted) return;
-        if (++failures >= JEV_FAILURES_FATAL && decided === 0) return fail(error);
+        if (++failures >= JEV_FAILURES_FATAL && decided === 0)
+          return fail(error);
         const reason = error instanceof Error ? error.message : String(error);
         emit({ type: "skipped", id: tweet.id, reason });
       }
@@ -143,7 +153,7 @@ async function drive(
           cursor: lane.cursor,
           signal: searching,
         });
-        spend(page.cost);
+        spendData(page.cost);
 
         let fresh = 0;
         for (const tweet of page.data.tweets) {
@@ -161,13 +171,15 @@ async function drive(
           query: lanes.indexOf(lane),
           found: page.data.tweets.length,
           fresh,
-          cost: page.cost,
         });
 
         lane.cursor = page.data.nextCursor ?? undefined;
         lane.stale = fresh === 0 ? lane.stale + 1 : 0;
-        // Out of pages, or two pages running of tweets another lane already had.
-        if (!lane.cursor || lane.stale >= 2) lane.live = false;
+        // Out of pages, an empty page, or two pages running of tweets another
+        // lane already had: this query has nothing more to give.
+        if (!lane.cursor || page.data.tweets.length === 0 || lane.stale >= 2) {
+          lane.live = false;
+        }
       } catch (error) {
         if (searching.aborted) return;
         searchError = error;

@@ -20,25 +20,25 @@ function pct(v: number) {
   return `${Math.round(Math.min(1, Math.max(0, v)) * 100)}%`;
 }
 
-type RouteStyle = { chip: string; dot: string; avatar: string; rank: number };
+type RouteStyle = { chip: string; dot: string; ring: string; rank: number };
 
 const ROUTE_STYLES: Record<Route, RouteStyle> = {
   "IN THE QUEUE": {
     chip: "border-primary bg-primary text-primary-foreground",
     dot: "border border-primary bg-primary",
-    avatar: "border border-primary bg-primary text-primary-foreground",
+    ring: "ring-2 ring-primary",
     rank: 2,
   },
   "NEEDS A HUMAN": {
     chip: "border-foreground bg-card text-foreground",
     dot: "border-2 border-foreground bg-card",
-    avatar: "border-2 border-foreground bg-card text-foreground",
+    ring: "ring-2 ring-foreground",
     rank: 1,
   },
   ARCHIVED: {
     chip: "border-border bg-muted text-muted-foreground",
     dot: "border border-faint bg-faint",
-    avatar: "border border-rule-soft bg-border text-muted-foreground",
+    ring: "opacity-45 grayscale",
     rank: 0,
   },
 };
@@ -46,12 +46,7 @@ const ROUTE_STYLES: Record<Route, RouteStyle> = {
 /* ── State ───────────────────────────────────────────────────────────────── */
 
 export type RunStatus =
-  | "connecting"
-  | "reading"
-  | "searching"
-  | "done"
-  | "stopped"
-  | "error";
+  "connecting" | "reading" | "searching" | "done" | "stopped" | "error";
 
 type Column = { rows: Decision[]; at: number };
 
@@ -64,11 +59,14 @@ export type RunState = {
   queries: number;
   startedAt: number | null;
   endedAt: number | null;
+  /** When the last decision landed — where the clock stops once the run ends. */
+  lastWorkAt: number | null;
   read: number;
   decided: number;
   authors: Set<string>;
   tally: Record<Route, number>;
-  costs: { profile: number; search: number; jev: number };
+  /** Model spend only. Data calls count toward the budget but are not shown. */
+  costs: { profile: number; queries: number; jev: number };
   lead: Decision | null;
   leadAt: number;
   /** The most interesting decision since the lead last changed. */
@@ -77,8 +75,21 @@ export type RunState = {
   waiting: Decision[];
   columns: [Column, Column];
   aside: { handle: string; why: string; n: string }[];
-  ticker: { ini: string; cls: string }[];
+  ticker: Face[];
 };
+
+/** Who a card or a ticker dot belongs to: a picture, with initials behind it. */
+export type Face = { id: string; ini: string; src: string; cls: string };
+
+function faceOf(d: Decision): Face {
+  const { author } = d.tweet;
+  return {
+    id: d.tweet.id,
+    ini: initials(author.name, author.handle),
+    src: author.avatar,
+    cls: ROUTE_STYLES[d.route].ring,
+  };
+}
 
 export function createRunState(domain: string, target: number): RunState {
   return {
@@ -90,11 +101,12 @@ export function createRunState(domain: string, target: number): RunState {
     queries: 0,
     startedAt: null,
     endedAt: null,
+    lastWorkAt: null,
     read: 0,
     decided: 0,
     authors: new Set(),
     tally: { "IN THE QUEUE": 0, "NEEDS A HUMAN": 0, ARCHIVED: 0 },
-    costs: { profile: 0, search: 0, jev: 0 },
+    costs: { profile: 0, queries: 0, jev: 0 },
     lead: null,
     leadAt: 0,
     leadNext: null,
@@ -128,11 +140,11 @@ export function applyEvent(state: RunState, event: RunEvent, now: number) {
       state.target = event.target;
       state.queries = event.queries.length;
       state.costs.profile = event.profileCost;
+      state.costs.queries = event.queriesCost;
       state.startedAt = now;
       return;
 
     case "search":
-      state.costs.search += event.cost;
       return;
 
     case "skipped":
@@ -143,6 +155,7 @@ export function applyEvent(state: RunState, event: RunEvent, now: number) {
       const { tweet, route, signals } = event;
       state.read++;
       state.decided++;
+      state.lastWorkAt = now;
       state.tally[route]++;
       state.costs.jev += event.cost;
       state.authors.add(tweet.author.handle);
@@ -159,10 +172,7 @@ export function applyEvent(state: RunState, event: RunEvent, now: number) {
         state.aside.unshift({ handle: `@${tweet.author.handle}`, ...aside });
         state.aside.length = Math.min(state.aside.length, ASIDE_ROWS);
       }
-      state.ticker.unshift({
-        ini: initials(tweet.author.name, tweet.author.handle),
-        cls: ROUTE_STYLES[route].avatar,
-      });
+      state.ticker.unshift(faceOf(event));
       state.ticker.length = Math.min(state.ticker.length, TICKER_SIZE);
       return;
     }
@@ -170,7 +180,9 @@ export function applyEvent(state: RunState, event: RunEvent, now: number) {
     case "done":
       state.status = "done";
       state.doneReason = event.reason;
-      state.endedAt = now;
+      // The stream can close a few seconds after the work did (a last search
+      // page coming back empty); the clock should show the work.
+      state.endedAt = state.lastWorkAt ?? now;
       return;
 
     case "error":
@@ -205,7 +217,10 @@ export function advance(state: RunState, now: number): boolean {
   }
 
   const [a, b] = state.columns;
-  if (state.waiting.length > 0 && now - Math.max(a.at, b.at) >= COLUMN_STEP_MS) {
+  if (
+    state.waiting.length > 0 &&
+    now - Math.max(a.at, b.at) >= COLUMN_STEP_MS
+  ) {
     // Feed whichever column has waited longest, so a lone arrival alternates.
     const order = a.at <= b.at ? [a, b] : [b, a];
     for (const column of order) {
@@ -235,7 +250,7 @@ export type SignalRow = {
 };
 
 export type LeadCard = {
-  ini: string;
+  face: Face;
   handle: string;
   meta: string;
   url: string;
@@ -249,7 +264,7 @@ export type LeadCard = {
 
 export type Brief = {
   id: string;
-  ini: string;
+  face: Face;
   handle: string;
   text: string;
   signals: { w: string; hi: boolean }[];
@@ -279,7 +294,7 @@ export type RunFrame = {
   tally: { a: number; b: number; c: string; wA: string; wB: string };
   ledger: { k: string; v: string }[];
   aside: { handle: string; why: string; n: string }[];
-  ticker: { ini: string; cls: string }[];
+  ticker: Face[];
 };
 
 function buildLead(d: Decision, wallNow: number): LeadCard {
@@ -287,12 +302,7 @@ function buildLead(d: Decision, wallNow: number): LeadCard {
   const rows: SignalRow[] = [
     {
       k: "IS ICP",
-      v:
-        s.icp >= THRESHOLDS.icp
-          ? "true"
-          : s.icp >= THRESHOLDS.icpFloor
-            ? "unclear"
-            : "false",
+      v: s.icp >= THRESHOLDS.icp ? "true" : s.icp >= 0.4 ? "unclear" : "false",
       at: pct(s.icp),
       th: pct(THRESHOLDS.icp),
       hi: true,
@@ -334,7 +344,8 @@ function buildLead(d: Decision, wallNow: number): LeadCard {
 
   const age = ago(tweet.createdAt, wallNow);
   return {
-    ini: initials(tweet.author.name, tweet.author.handle),
+    // Cards carry their own route chip and dot, so the picture stays plain.
+    face: { ...faceOf(d), cls: "" },
     handle: `@${tweet.author.handle}`,
     meta: `${comma(tweet.author.followers)} followers${age && ` — ${age}`}`,
     url: tweet.url,
@@ -359,7 +370,7 @@ function buildBrief(d: Decision, newest: boolean, phase: number): Brief {
 
   return {
     id: d.tweet.id,
-    ini: initials(d.tweet.author.name, d.tweet.author.handle),
+    face: { ...faceOf(d), cls: "" },
     handle: `@${d.tweet.author.handle}`,
     text: d.tweet.text,
     signals: signals.map((x) => ({ w: pct(x.v), hi: x.hi })),
@@ -404,10 +415,14 @@ function outcome(state: RunState) {
 }
 
 /** `now` is the pacing clock (`performance.now`); `wallNow` dates the tweets. */
-export function toFrame(state: RunState, now: number, wallNow: number): RunFrame {
+export function toFrame(
+  state: RunState,
+  now: number,
+  wallNow: number,
+): RunFrame {
   const running = isRunning(state);
   const { costs, tally } = state;
-  const total = costs.profile + costs.search + costs.jev;
+  const total = costs.profile + costs.queries + costs.jev;
   const elapsedMs =
     state.startedAt === null ? 0 : (state.endedAt ?? now) - state.startedAt;
 
@@ -438,11 +453,9 @@ export function toFrame(state: RunState, now: number, wallNow: number): RunFrame
       wB: share(b),
     },
     ledger: [
-      { k: "site read and profile", v: money(costs.profile) },
-      { k: "tweet search", v: money(costs.search) },
+      { k: "profile written", v: money(costs.profile) },
+      { k: "searches written", v: money(costs.queries) },
       { k: "jev decisions", v: money(costs.jev) },
-      // Authors arrive with the search results, so this line stays at zero.
-      { k: "author lookups", v: money(0) },
       { k: "drafts written", v: money(0) },
       { k: "sending", v: money(0) },
     ],
