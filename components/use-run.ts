@@ -1,91 +1,50 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  advance,
-  applyEvent,
-  createRunState,
-  isRunning,
-  markStopped,
-  toFrame,
-  type RunFrame,
-  type RunState,
-} from "@/lib/run-frame";
-import { postNdjson } from "@/lib/ndjson";
-import type { RunEvent } from "@/lib/run-types";
+import { useCallback, useEffect, useState } from "react";
+import { advance, createRunState, isRunning, toFrame } from "@/lib/run-frame";
+import { ensureRun, restartRun, stopRun, watchRun } from "@/lib/run-store";
 
 /** How often the console repaints. Events arrive far faster than this. */
 const PAINT_MS = 100;
 
 /**
- * Starts a run for `domain` on mount and returns the frame to draw, plus a
- * way to stop it. Events fold into a mutable state as they arrive; a steady
- * timer turns that state into frames, so a burst of forty decisions a second
- * costs ten renders, not forty.
+ * The frame to draw for `domain`'s run, plus ways to stop it and to run it
+ * again. The run itself lives in `run-store` — this joins the one in progress
+ * or starts one — and a steady timer turns its state into frames, so a burst
+ * of forty decisions a second costs ten renders, not forty.
  */
 function useRun(domain: string, target: number) {
-  const [frame, setFrame] = useState<RunFrame>(() =>
+  const [frame, setFrame] = useState(() =>
     toFrame(createRunState(domain, target), 0, 0),
   );
-  const stopRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    const state: RunState = createRunState(domain, target);
-    const controller = new AbortController();
-    let dirty = true;
+    const unwatch = watchRun();
+    let painted = -1;
 
     const paint = () => {
+      // Looked up each time: "run again" swaps the session underneath us.
+      const run = ensureRun(domain, target);
       const now = performance.now();
-      const moved = advance(state, now);
-      if (!moved && !dirty && !isRunning(state)) return;
-      dirty = false;
-      setFrame(toFrame(state, now, Date.now()));
+      const moved = advance(run.state, now);
+      if (!moved && run.version === painted && !isRunning(run.state)) return;
+      painted = run.version;
+      setFrame(toFrame(run.state, now, Date.now()));
     };
+
+    paint();
     const timer = setInterval(paint, PAINT_MS);
-
-    const fold = (event: RunEvent) => {
-      applyEvent(state, event, performance.now());
-      dirty = true;
-    };
-
-    // Deferred a tick so that Strict Mode's mount–unmount–mount in development
-    // cancels the first attempt before it ever reaches the server.
-    const begin = setTimeout(() => {
-      postNdjson("/api/run", { domain, target }, controller.signal, fold).then(
-        () => {
-          // The stream closing without a verdict means the connection dropped.
-          if (isRunning(state)) {
-            fold({
-              type: "error",
-              message: "The connection to the run was lost.",
-            });
-          }
-        },
-        (error: unknown) => {
-          if (controller.signal.aborted) return;
-          const message =
-            error instanceof Error ? error.message : String(error);
-          fold({ type: "error", message });
-        },
-      );
-    }, 0);
-
-    stopRef.current = () => {
-      controller.abort();
-      markStopped(state, performance.now());
-      dirty = true;
-      paint();
-    };
-
     return () => {
-      clearTimeout(begin);
       clearInterval(timer);
-      controller.abort();
+      unwatch();
     };
   }, [domain, target]);
 
-  const stop = useCallback(() => stopRef.current(), []);
-  return { frame, stop };
+  const again = useCallback(() => {
+    restartRun(domain, target);
+  }, [domain, target]);
+
+  return { frame, stop: stopRun, again };
 }
 
 export { useRun };

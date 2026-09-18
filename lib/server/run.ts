@@ -15,6 +15,8 @@ import {
 export const RUN_TARGET = Number(process.env.RUN_TWEET_TARGET ?? 1000);
 /** jev calls in flight at once — "8 in parallel" on the step bar. */
 const JEV_PARALLEL = 8;
+/** A search lane is dropped after this many failed pages in a row. */
+const LANE_ERRORS_FATAL = 2;
 /** If jev fails this many times before succeeding once, it is not the tweets. */
 const JEV_FAILURES_FATAL = 8;
 
@@ -61,6 +63,8 @@ type Lane = {
   accepted: number;
   /** Consecutive pages that held nothing new. */
   stale: number;
+  /** Consecutive pages that failed or timed out. */
+  errors: number;
 };
 
 async function drive(
@@ -132,6 +136,7 @@ async function drive(
     busy: false,
     accepted: 0,
     stale: 0,
+    errors: 0,
   }));
   const seen = new Set<string>();
   let accepted = 0;
@@ -173,6 +178,7 @@ async function drive(
           fresh,
         });
 
+        lane.errors = 0;
         lane.cursor = page.data.nextCursor ?? undefined;
         lane.stale = fresh === 0 ? lane.stale + 1 : 0;
         // Out of pages, an empty page, or two pages running of tweets another
@@ -182,8 +188,10 @@ async function drive(
         }
       } catch (error) {
         if (searching.aborted) return;
+        // X search stalls now and then; the same page usually answers on the
+        // next try. Only a lane that fails twice running is given up on.
         searchError = error;
-        lane.live = false;
+        if (++lane.errors >= LANE_ERRORS_FATAL) lane.live = false;
       } finally {
         lane.busy = false;
       }

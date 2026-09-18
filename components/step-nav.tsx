@@ -12,7 +12,7 @@ const STEPS: Step[] = [
   { n: 1, label: "DOMAIN", href: "/" },
   { n: 2, label: "PROFILE", href: "/profile" },
   { n: 3, label: "QUERIES", href: "/run" },
-  { n: 4, label: "REVIEW" },
+  { n: 4, label: "REVIEW", href: "/review" },
   { n: 5, label: "SENT" },
 ];
 
@@ -20,14 +20,20 @@ const STEPS: Step[] = [
 function StepNav({
   current,
   domain,
+  target,
   className,
 }: {
   current: number;
   /** Carried on every link, so stepping back stays on the same company. */
   domain?: string;
+  /** A non-default run size, carried the same way. */
+  target?: number;
   className?: string;
 }) {
-  const query = domain ? `?domain=${encodeURIComponent(domain)}` : "";
+  const params = new URLSearchParams();
+  if (domain) params.set("domain", domain);
+  if (target) params.set("target", String(target));
+  const query = params.size ? `?${params}` : "";
 
   return (
     <nav
