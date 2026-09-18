@@ -4,6 +4,8 @@
 
 No keywords, no forms, nothing to set up. Every call on every tweet is made by [jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) — TypeSafe's System One model — which answers five typed questions in one request, each with a calibrated probability, in a few hundred milliseconds. Values, never sentences.
 
+**[Live demo → worth-replying.aisa.one](https://worth-replying.aisa.one)**
+
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAIsa-team%2Fworth-replying&env=AISA_API_KEY&envDescription=AIsa%20reads%20the%20site%20and%20searches%20X.%20The%20AI%20Gateway%20needs%20no%20key%20on%20Vercel.&envLink=https%3A%2F%2Fgithub.com%2FAIsa-team%2Fworth-replying%23environment-variables&project-name=worth-replying&repository-name=worth-replying)
 
 > **Built on [AIsa](https://aisa.one)** — the unified resource and transaction network for AI agents. Everything this app knows about the outside world — the website it reads, the tweets it searches — comes through one AIsa key. [More below ↓](#about-aisa)
