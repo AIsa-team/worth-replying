@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { cn } from "cn";
 import { Avatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
@@ -77,11 +78,25 @@ function BriefCard({ brief }: { brief: Brief }) {
     >
       <div className="flex items-center gap-1.5">
         <Avatar face={brief.face} px={17} />
-        <span className="font-mono text-[9.5px]">{brief.handle}</span>
+        <a
+          href={brief.url}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono text-[9.5px] underline-offset-2 hover:underline"
+        >
+          {brief.handle}
+        </a>
         <span className="grow" />
         <span className={cn("size-2 shrink-0 rounded-full", brief.dot)} />
       </div>
-      <p className="line-clamp-3 text-[13px] leading-[1.4]">{brief.text}</p>
+      <a
+        href={brief.url}
+        target="_blank"
+        rel="noreferrer"
+        className="line-clamp-3 text-[13px] leading-[1.4] transition-colors hover:text-ember"
+      >
+        {brief.text}
+      </a>
       <div className="flex gap-[3px]">
         {brief.signals.map((s, i) => (
           <div key={i} className="h-[3px] grow bg-track">
@@ -110,7 +125,8 @@ function SectionLabel({ className, children }: React.ComponentProps<"h2">) {
 }
 
 function RunConsole({ domain, target }: { domain: string; target: number }) {
-  const { frame: f, stop } = useRun(domain, target);
+  const { frame: f, stop, again } = useRun(domain, target);
+  const reviewHref = `/review?${new URLSearchParams({ domain, target: String(target) })}`;
 
   return (
     <>
@@ -154,7 +170,10 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
             </div>
 
             {f.status === "error" && f.lead && (
-              <p role="alert" className="font-mono text-[10px] text-destructive">
+              <p
+                role="alert"
+                className="font-mono text-[10px] text-destructive"
+              >
                 {f.note}
               </p>
             )}
@@ -297,9 +316,14 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
               <SectionLabel>SET ASIDE FOR A PERSON</SectionLabel>
               {f.aside.map((row) => (
                 <div key={row.handle} className="flex items-baseline gap-2">
-                  <span className="w-24 shrink-0 font-mono text-[10px]">
+                  <a
+                    href={row.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-24 shrink-0 truncate font-mono text-[10px] underline-offset-2 hover:underline"
+                  >
                     {row.handle}
-                  </span>
+                  </a>
                   <span className="grow text-[12.5px] text-muted-foreground">
                     {row.why}
                   </span>
@@ -322,7 +346,16 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
             <div className="h-[30px] grow overflow-hidden" aria-hidden>
               <div className="flex h-full w-max items-center gap-1.5 pl-0.5">
                 {f.ticker.map((face) => (
-                  <Avatar key={face.id} face={face} px={24} />
+                  <a
+                    key={face.id}
+                    href={face.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={face.handle}
+                    tabIndex={-1}
+                  >
+                    <Avatar face={face} px={24} />
+                  </a>
                 ))}
               </div>
             </div>
@@ -333,11 +366,10 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
       <footer className="flex shrink-0 flex-wrap items-center gap-4 border-t border-border px-5 py-4 md:h-[76px] md:px-10 md:py-0">
         <Button
           variant="outline"
-          onClick={stop}
-          disabled={!f.running}
+          onClick={f.running ? stop : again}
           className="h-11 border-foreground px-[18px] font-mono text-xs tracking-[0.1em]"
         >
-          {f.running ? "STOP — KEEP WHAT IS SCORED" : "THE RUN HAS ENDED"}
+          {f.running ? "STOP — KEEP WHAT IS SCORED" : "RUN IT AGAIN"}
         </Button>
         <button
           type="button"
@@ -350,9 +382,23 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
         <p className="hidden font-mono text-[11.5px] text-muted-foreground lg:block">
           {f.outcome || "you can start reading before it finishes"}
         </p>
-        <Button className="h-[46px] px-[22px] font-mono text-[12.5px] font-medium tracking-[0.12em] tabular-nums">
-          REVIEW {f.tally.a} CANDIDATES
-        </Button>
+        {/* Open from the first hit: reading does not stop the run. */}
+        {f.tally.a + f.tally.b > 0 ? (
+          <Button
+            nativeButton={false}
+            render={
+              <Link href={reviewHref}>REVIEW {f.tally.a} CANDIDATES</Link>
+            }
+            className="h-[46px] px-[22px] font-mono text-[12.5px] font-medium tracking-[0.12em] tabular-nums"
+          />
+        ) : (
+          <Button
+            disabled
+            className="h-[46px] px-[22px] font-mono text-[12.5px] font-medium tracking-[0.12em] tabular-nums"
+          >
+            REVIEW 0 CANDIDATES
+          </Button>
+        )}
       </footer>
     </>
   );

@@ -192,7 +192,7 @@ export async function searchTweets(
     {
       query: { query, queryType: "Latest", cursor },
       signal,
-      timeoutMs: 20_000,
+      timeoutMs: 12_000,
     },
   );
 

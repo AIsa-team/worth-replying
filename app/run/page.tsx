@@ -55,7 +55,11 @@ export default async function RunPage({ searchParams }: PageProps<"/run">) {
         </Suspense>
       </SiteHeader>
 
-      <StepNav current={3} domain={host} />
+      <StepNav
+        current={3}
+        domain={host}
+        target={size === RUN_TARGET ? undefined : size}
+      />
 
       <RunConsole key={host} domain={host} target={size} />
     </>

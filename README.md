@@ -27,7 +27,9 @@ flowchart LR
 2. **Profile** — the site is crawled a few pages deep, and a language model writes down what you do, who buys it, what hurts them, and who else they would consider. From that profile it writes five X searches, then runs one page of each to measure how much each one actually returns. You watch all of this happen: pages land, the profile types itself out, the searches follow.
 3. **Run** — every search is paged through in parallel. Each new tweet goes to jev, eight at a time, and the console fills in live: the tweet being decided, the five answers against their thresholds, where it was routed, and what it has cost so far.
 
-Steps 4 and 5 of the design (**Review** and **Sent**) are not built yet. Nothing is ever posted.
+4. **Review** — everything jev did not archive, best opening first, with its five answers. Each one has a **Reply on X** button that opens X's composer already addressed to that tweet, and a link to the tweet itself. You can step here while the run is still going: the run carries on and the list keeps growing. You write the reply; you send it.
+
+Step 5 of the design (**Sent**) is not built, and drafting replies is deliberately left out. Nothing is ever posted.
 
 ### The five questions
 
@@ -125,7 +127,7 @@ The site read and the search plan are cached per domain for a day, so a second r
 This is a demo, and it spends money when someone opens a page.
 
 - **There is no authentication and no rate limiting.** Anyone who can reach the deployment can start runs on your keys. Put it behind [Vercel Deployment Protection](https://vercel.com/docs/deployment-protection), your own auth, or keep it local.
-- **Opening `/run` starts a run.** So does reloading it.
+- **Opening `/run` starts a run.** So does reloading it. Moving between the run and review screens does not; the run in progress is shared.
 - **The daily budget is a guard rail, not a hard limit.** It is held in process memory: exact under `pnpm dev` or a single `next start`, but per instance on serverless. Set real spend limits on your AIsa and AI Gateway keys as well.
 - **Tweet text is untrusted input.** It is only ever passed to jev as state to be scored; jev returns typed values and cannot be talked into doing anything. The website text goes to a language model with instructions to treat it as material, never as instructions.
 
@@ -155,14 +157,17 @@ app/
   page.tsx                  1 — domain
   profile/                  2 — profile and searches, streamed in
   run/                      3 — the live console
+  review/                   4 — the conversations worth answering, with links to X
   api/                      profile, profile/stream, queries, run
 components/
   profile-live.tsx          follows /api/profile/stream
   run-console.tsx           draws one frame of the run
-  use-run.ts                follows /api/run, paints at a steady rate
+  review-list.tsx           the review screen
+  use-run.ts                paints the current run at a steady rate
 lib/
   decision.ts               thresholds and routing — shared by server and UI
   run-frame.ts              events → state → the strings the console prints
+  run-store.ts              the run in progress, shared by the run and review screens
   run-types.ts              every shape that crosses the wire
   server/
     aisa.ts                 AIsa client: crawl, extract, X search; real cost per call

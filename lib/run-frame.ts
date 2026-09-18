@@ -74,20 +74,37 @@ export type RunState = {
   /** Decided but not yet shown in a column; only the newest few are kept. */
   waiting: Decision[];
   columns: [Column, Column];
-  aside: { handle: string; why: string; n: string }[];
+  aside: { handle: string; why: string; n: string; url: string }[];
   ticker: Face[];
+  /** Everything not archived, in the order it was decided — the review list. */
+  hits: Decision[];
 };
 
 /** Who a card or a ticker dot belongs to: a picture, with initials behind it. */
-export type Face = { id: string; ini: string; src: string; cls: string };
+export type Face = {
+  id: string;
+  ini: string;
+  src: string;
+  cls: string;
+  handle: string;
+  /** The tweet on X. */
+  url: string;
+};
 
-function faceOf(d: Decision): Face {
+/** The chip colours for a route, for screens that draw their own cards. */
+export function chipFor(route: Route) {
+  return ROUTE_STYLES[route].chip;
+}
+
+export function faceOf(d: Decision): Face {
   const { author } = d.tweet;
   return {
     id: d.tweet.id,
     ini: initials(author.name, author.handle),
     src: author.avatar,
     cls: ROUTE_STYLES[d.route].ring,
+    handle: `@${author.handle}`,
+    url: d.tweet.url,
   };
 }
 
@@ -117,6 +134,7 @@ export function createRunState(domain: string, target: number): RunState {
     ],
     aside: [],
     ticker: [],
+    hits: [],
   };
 }
 
@@ -169,10 +187,15 @@ export function applyEvent(state: RunState, event: RunEvent, now: number) {
 
       const aside = asideFor(signals);
       if (aside) {
-        state.aside.unshift({ handle: `@${tweet.author.handle}`, ...aside });
+        state.aside.unshift({
+          handle: `@${tweet.author.handle}`,
+          url: tweet.url,
+          ...aside,
+        });
         state.aside.length = Math.min(state.aside.length, ASIDE_ROWS);
       }
       state.ticker.unshift(faceOf(event));
+      if (route !== "ARCHIVED") state.hits.push(event);
       state.ticker.length = Math.min(state.ticker.length, TICKER_SIZE);
       return;
     }
@@ -264,6 +287,7 @@ export type LeadCard = {
 
 export type Brief = {
   id: string;
+  url: string;
   face: Face;
   handle: string;
   text: string;
@@ -293,7 +317,7 @@ export type RunFrame = {
   colB: Brief[];
   tally: { a: number; b: number; c: string; wA: string; wB: string };
   ledger: { k: string; v: string }[];
-  aside: { handle: string; why: string; n: string }[];
+  aside: { handle: string; why: string; n: string; url: string }[];
   ticker: Face[];
 };
 
@@ -370,6 +394,7 @@ function buildBrief(d: Decision, newest: boolean, phase: number): Brief {
 
   return {
     id: d.tweet.id,
+    url: d.tweet.url,
     face: { ...faceOf(d), cls: "" },
     handle: `@${d.tweet.author.handle}`,
     text: d.tweet.text,
