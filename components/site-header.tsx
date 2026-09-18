@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { cn } from "cn";
 
 /**
@@ -15,8 +16,15 @@ function SiteHeader({ className, children }: React.ComponentProps<"header">) {
     >
       <Link
         href="/"
-        className="font-mono text-[11.5px] font-medium tracking-[0.22em] text-foreground transition-colors hover:text-primary"
+        className="flex shrink-0 items-center gap-2.5 font-mono text-[11.5px] font-medium tracking-[0.22em] text-foreground transition-colors hover:text-primary"
       >
+        <Image
+          src="/icon.svg"
+          alt="AIsa"
+          width={83}
+          height={98}
+          className="h-6 w-auto shrink-0"
+        />
         WORTH REPLYING
       </Link>
       {children}
