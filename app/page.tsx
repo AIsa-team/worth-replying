@@ -50,13 +50,19 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="flex shrink-0 justify-center px-5 pb-7 md:px-10">
+      <footer className="flex shrink-0 flex-col items-center gap-3 px-5 pb-7 md:px-10">
         <p className="max-w-[820px] text-center font-mono text-[11px] leading-[1.7] text-muted-foreground">
           The call on each tweet is made by{" "}
           <span className="text-ember">jev</span>: five typed questions in one
           request, each with a calibrated probability, in 70 to 500 milliseconds
           — values, never sentences.
         </p>
+        <a
+          href="https://github.com/AIsa-team/worth-replying"
+          className="font-mono text-[11px] text-ember underline underline-offset-4 transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ember"
+        >
+          Open source on GitHub <span aria-hidden>↗</span>
+        </a>
       </footer>
     </>
   );
