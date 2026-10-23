@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DEFAULT_DOMAIN } from "@/lib/domain";
+import { DEFAULT_DOMAIN, parseDomain } from "@/lib/domain";
 
 const SUGGESTIONS = [DEFAULT_DOMAIN, "aisa.one", "resend.com"];
 
@@ -16,14 +16,21 @@ function normalize(value: string) {
     .replace(/\/.*$/, "");
 }
 
-function DomainForm() {
+function DomainForm({ signedIn }: { signedIn: boolean }) {
   const router = useRouter();
   const [domain, setDomain] = useState(DEFAULT_DOMAIN);
+  const [destination, setDestination] = useState("/");
+  const [error, setError] = useState("");
+  const dialog = useRef<HTMLDialogElement>(null);
 
   function go(value: string) {
-    const host = normalize(value);
-    if (!host) return;
-    router.push(`/profile?domain=${encodeURIComponent(host)}`);
+    const host = parseDomain(normalize(value));
+    if (!host) { setError("Enter a valid website domain."); return; }
+    setError("");
+    const next = `/profile?domain=${encodeURIComponent(host)}`;
+    if (signedIn) { router.push(next); return; }
+    setDestination(next);
+    dialog.current?.showModal();
   }
 
   return (
@@ -63,6 +70,19 @@ function DomainForm() {
         </Button>
       </form>
 
+      {error && <p role="alert" className="text-sm text-ember">{error}</p>}
+      <dialog ref={dialog} aria-labelledby="login-title" aria-describedby="login-description"
+        className="m-auto w-[calc(100%-2rem)] max-w-md rounded-lg border border-border bg-background p-7 text-foreground shadow-xl backdrop:bg-black/35">
+        <h2 id="login-title" className="text-3xl">Sign in to continue</h2>
+        <p id="login-description" className="mt-4 text-base leading-relaxed text-muted-foreground">
+          Sign in with AIsa to read this website and find conversations on X. These data calls use your personal AIsa balance; Worth Replying pays for model calls.
+        </p>
+        <div className="mt-6 flex items-center gap-5">
+          <a autoFocus href={`/auth/login?returnTo=${encodeURIComponent(destination)}`}
+            className="rounded-md bg-primary px-4 py-3 font-mono text-xs text-primary-foreground">Continue with AIsa</a>
+          <button type="button" onClick={() => dialog.current?.close()} className="font-mono text-xs text-muted-foreground underline">Cancel</button>
+        </div>
+      </dialog>
       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 pt-1 font-mono text-[11.5px] text-muted-foreground">
         <span>try it on</span>
         {SUGGESTIONS.map((host, i) => (

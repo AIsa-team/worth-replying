@@ -2,12 +2,8 @@ import "server-only";
 
 import type { ProfileEvent } from "@/lib/run-types";
 
-/**
- * A side channel out of the cached profile work. `readSite` and `planSearch`
- * run inside Next's data cache, which hands back only a final value — so while
- * they work they `report` here, and `/api/profile/stream` `watch`es to show the
- * pages landing and the model writing. On a cache hit nothing runs, nothing is
- * reported, and the watcher simply gets the finished result at once.
+/** Process-local progress for a login + domain key. Completed flights discard
+ * replay state; no tokens or cross-caller subscriptions live here.
  */
 type Listener = (event: ProfileEvent) => void;
 

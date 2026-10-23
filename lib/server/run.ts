@@ -1,8 +1,10 @@
 import "server-only";
 
 import type { Profile, RunEvent, Tweet } from "@/lib/run-types";
-import { searchTweets } from "./aisa";
-import { assertBudget, overBudget, spend, spendData } from "./budget";
+import { AisaError, searchTweets } from "./aisa";
+import { AuthError, type Caller } from "./auth";
+import { explain } from "./http";
+import { BudgetError, assertBudget, overBudget, spend, spendData } from "./budget";
 import { decide } from "./jev";
 import {
   getSearchPlan,
@@ -35,18 +37,19 @@ export type RunInput = {
  * stops new work at once; whatever was already scored has already been sent.
  */
 export function run(
+  caller: Caller,
   input: RunInput,
   signal: AbortSignal,
 ): AsyncIterable<RunEvent> {
   const events = channel<RunEvent>();
-  drive(input, signal, events.push).then(
+  drive(caller, input, signal, events.push).then(
     (reason) => {
       events.push({ type: "done", reason });
       events.close();
     },
     (error: unknown) => {
       if (!signal.aborted) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = explain(error);
         events.push({ type: "error", message });
       }
       events.close();
@@ -68,6 +71,7 @@ type Lane = {
 };
 
 async function drive(
+  caller: Caller,
   input: RunInput,
   outer: AbortSignal,
   emit: (event: RunEvent) => void,
@@ -77,16 +81,16 @@ async function drive(
 
   // Step 2's work, reused from cache when the profile screen already paid for it.
   emit({ type: "reading", domain });
-  const read = input.profile ? null : await getSiteRead(domain);
+  const read = input.profile ? null : await getSiteRead(caller, domain);
   const profile = input.profile ?? read!.profile;
   const plan = input.queries
     ? null
     : input.profile
-      ? await planSearch(profile)
-      : await getSearchPlan(domain);
+      ? await planSearch(caller, profile, false)
+      : await getSearchPlan(caller, domain);
   const queries = input.queries ?? plan!.queries.map((query) => query.q);
 
-  assertBudget();
+  assertBudget(caller);
   emit({
     type: "start",
     domain,
@@ -116,15 +120,17 @@ async function drive(
     limit(async () => {
       if (signal.aborted) return;
       try {
+        assertBudget(caller);
         const decision = await decide(profile, tweet, signal);
-        spend(decision.cost);
+        spend(caller, decision.cost);
         decided++;
         emit({ type: "decision", ...decision });
       } catch (error) {
         if (signal.aborted) return;
+        if (error instanceof AuthError || error instanceof BudgetError) return fail(error);
         if (++failures >= JEV_FAILURES_FATAL && decided === 0)
           return fail(error);
-        const reason = error instanceof Error ? error.message : String(error);
+        const reason = explain(error);
         emit({ type: "skipped", id: tweet.id, reason });
       }
     });
@@ -146,7 +152,7 @@ async function drive(
   const searching = AbortSignal.any([signal, enough.signal]);
 
   const searcher = async () => {
-    while (!signal.aborted && accepted < target && !overBudget()) {
+    while (!signal.aborted && accepted < target && !overBudget(caller)) {
       const lane = lanes
         .filter((l) => l.live && !l.busy)
         .sort((a, b) => a.accepted - b.accepted)[0];
@@ -154,12 +160,14 @@ async function drive(
 
       lane.busy = true;
       try {
-        const page = await searchTweets(searchString(lane.q), {
+        assertBudget(caller);
+        const page = await searchTweets(caller, searchString(lane.q), {
           cursor: lane.cursor,
           signal: searching,
         });
-        spendData(page.cost);
+        spendData(caller, page.cost);
 
+        if (signal.aborted) return;
         let fresh = 0;
         for (const tweet of page.data.tweets) {
           if (accepted >= target) break;
@@ -188,6 +196,8 @@ async function drive(
         }
       } catch (error) {
         if (searching.aborted) return;
+        if (error instanceof AuthError || error instanceof BudgetError) return fail(error);
+        if (error instanceof AisaError && [401, 402, 403].includes(error.status)) return fail(error);
         // X search stalls now and then; the same page usually answers on the
         // next try. Only a lane that fails twice running is given up on.
         searchError = error;
@@ -204,7 +214,7 @@ async function drive(
   if (fatal) throw fatal;
   if (accepted === 0 && searchError) throw searchError;
   if (accepted >= target) return "complete";
-  return overBudget() ? "budget" : "exhausted";
+  return overBudget(caller) ? "budget" : "exhausted";
 }
 
 /* ── Small concurrency tools ─────────────────────────────────────────────── */

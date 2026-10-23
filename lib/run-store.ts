@@ -1,4 +1,4 @@
-import { postNdjson } from "./ndjson";
+import { browserScope, postNdjson } from "./ndjson";
 import {
   applyEvent,
   createRunState,
@@ -15,6 +15,7 @@ import type { Decision, RunEvent } from "./run-types";
  * screens have to be looking at the same one. Browser only.
  */
 export type Session = {
+  scope: string;
   domain: string;
   target: number;
   state: RunState;
@@ -54,6 +55,7 @@ function start(domain: string, target: number): Session {
   session?.controller.abort();
 
   const next: Session = {
+    scope: browserScope(),
     domain,
     target,
     state: createRunState(domain, target),
@@ -96,7 +98,7 @@ function start(domain: string, target: number): Session {
  * costs money, so it takes `restartRun`.
  */
 export function ensureRun(domain: string, target: number): Session {
-  return session?.domain === domain ? session : start(domain, target);
+  return session?.scope === browserScope() && session?.domain === domain ? session : start(domain, target);
 }
 
 export function restartRun(domain: string, target: number): Session {
@@ -104,7 +106,7 @@ export function restartRun(domain: string, target: number): Session {
 }
 
 export function currentRun(domain: string): Session | null {
-  return session?.domain === domain ? session : null;
+  return session?.scope === browserScope() && session?.domain === domain ? session : null;
 }
 
 export function stopRun() {
@@ -128,9 +130,10 @@ export type Snapshot = {
   hits: Decision[];
 };
 
-const key = (domain: string) => `worth-replying:run:${domain}`;
+const key = (domain: string) => `worth-replying:run:${browserScope()}:${domain}`;
 
-function saveSnapshot({ domain, state }: Session) {
+function saveSnapshot({ domain, state, scope }: Session) {
+  if (scope !== browserScope()) return;
   const snapshot: Snapshot = { domain, read: state.read, hits: state.hits };
   try {
     sessionStorage.setItem(key(domain), JSON.stringify(snapshot));
@@ -141,6 +144,7 @@ function saveSnapshot({ domain, state }: Session) {
 
 export function loadSnapshot(domain: string): Snapshot | null {
   try {
+    sessionStorage.removeItem(`worth-replying:run:${domain}`);
     const stored = sessionStorage.getItem(key(domain));
     return stored ? (JSON.parse(stored) as Snapshot) : null;
   } catch {

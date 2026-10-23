@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { parseDomain } from "@/lib/domain";
+import { AuthError, PRIVATE_HEADERS } from "./auth";
 import { AisaError } from "./aisa";
 import { BudgetError } from "./budget";
 import { UnreadableSiteError } from "./profile";
@@ -61,19 +62,21 @@ export async function readBody<S extends z.ZodType>(
 /* ── Responses ───────────────────────────────────────────────────────────── */
 
 function problem(status: number, message: string) {
-  return Response.json({ error: message }, { status });
+  return Response.json({ error: message }, { status, headers: PRIVATE_HEADERS });
 }
+
+const MODEL_AUTH_MESSAGE = "The website's model service is not connected. Please contact the site owner.";
 
 /** Map what the pipeline can throw onto a status a client can act on. */
 export function problemFrom(error: unknown) {
+  if (error instanceof Error && error.name === "GatewayAuthenticationError") return problem(503, MODEL_AUTH_MESSAGE);
+  if (error instanceof AuthError) return problem(401, error.message);
   if (error instanceof BudgetError) return problem(402, error.message);
   if (error instanceof UnreadableSiteError) return problem(422, error.message);
   if (error instanceof AisaError) {
-    const upstream = error.status === 401 || error.status === 403;
-    return problem(upstream ? 500 : 502, error.message);
+    return problem(error.status === 402 ? 402 : [401, 403].includes(error.status) ? 401 : 502, error.message);
   }
-  console.error(error);
-  return problem(500, error instanceof Error ? error.message : "Unknown error");
+  return problem(500, "Something went wrong on our side. Try again later.");
 }
 
 /**
@@ -81,12 +84,10 @@ export function problemFrom(error: unknown) {
  * the browser redacted in production, so screens catch and print this instead.
  */
 export function explain(error: unknown) {
+  if (error instanceof Error && error.name === "GatewayAuthenticationError") return MODEL_AUTH_MESSAGE;
   if (error instanceof BudgetError || error instanceof UnreadableSiteError) {
     return error.message;
   }
-  console.error(error);
-  if (error instanceof AisaError) {
-    return "The data service did not answer. Try again in a moment.";
-  }
+  if (error instanceof AuthError || error instanceof AisaError) return error.message;
   return "Something went wrong on our side. Try again in a moment.";
 }

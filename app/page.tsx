@@ -1,7 +1,9 @@
+import { session } from "@/lib/server/auth";
 import { DomainForm } from "@/components/domain-form";
 import { SiteHeader } from "@/components/site-header";
 
-export default function Home() {
+export default async function Home() {
+  const caller = await session();
   return (
     <>
       <SiteHeader>
@@ -25,7 +27,7 @@ export default function Home() {
           </p>
         </div>
 
-        <DomainForm />
+        <DomainForm signedIn={Boolean(caller)} />
 
         <div className="flex w-full max-w-[660px] flex-col gap-[9px] pt-1">
           <div className="rule-strong" />
@@ -45,7 +47,7 @@ export default function Home() {
             </span>
           </div>
           <p className="font-mono text-[10.5px] tracking-[0.1em] text-muted-foreground">
-            LAST RUN ON AISA.ONE — 18 SEP 2026
+            MODEL COST ONLY — PERSONAL AISA DATA CHARGES ARE ADDITIONAL
           </p>
         </div>
       </main>

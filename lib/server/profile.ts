@@ -1,6 +1,7 @@
 import "server-only";
 
-import { unstable_cache } from "next/cache";
+import { type Caller } from "./auth";
+import { createHash } from "node:crypto";
 import type {
   Profile,
   Query,
@@ -8,7 +9,7 @@ import type {
   SiteRead,
   Tweet,
 } from "@/lib/run-types";
-import { crawlSite, extractPages, searchTweets } from "./aisa";
+import { AisaError, crawlSite, extractPages, searchTweets } from "./aisa";
 import { assertBudget, spend, spendData } from "./budget";
 import { clipSite, writeProfile, writeQueries } from "./llm";
 import { report, settle } from "./progress";
@@ -36,18 +37,19 @@ export class UnreadableSiteError extends Error {
   }
 }
 
-async function readSite(domain: string): Promise<SiteRead> {
-  assertBudget();
+async function readSite(caller: Caller, domain: string): Promise<SiteRead> {
+  assertBudget(caller);
   const started = performance.now();
 
-  const crawl = await crawlSite(domain);
-  spendData(crawl.cost);
+  const crawl = await crawlSite(caller, domain);
+  spendData(caller, crawl.cost);
   let pages = crawl.data;
 
   // Some sites give a crawler nothing to walk; the homepage alone will do.
   if (pages.length === 0) {
-    const homepage = await extractPages([`https://${domain}`]);
-    spendData(homepage.cost);
+    assertBudget(caller);
+    const homepage = await extractPages(caller, [`https://${domain}`]);
+    spendData(caller, homepage.cost);
     pages = homepage.data;
   }
   if (pages.length === 0) throw new UnreadableSiteError(domain);
@@ -57,12 +59,13 @@ async function readSite(domain: string): Promise<SiteRead> {
     path: new URL(page.url).pathname,
     characters: page.content.length,
   }));
-  report(domain, { type: "pages", pages: sources });
+  report(progressKey(caller, domain), { type: "pages", pages: sources });
 
+  assertBudget(caller);
   const written = await writeProfile(domain, site, (draft) =>
-    report(domain, { type: "profile", draft }),
+    report(progressKey(caller, domain), { type: "profile", draft }),
   );
-  spend(written.cost);
+  spend(caller, written.cost);
 
   return {
     profile: written.profile,
@@ -89,108 +92,68 @@ function volume(tweets: Tweet[], exhausted: boolean): string {
   return `~${Math.round(perDay / step) * step} a day`;
 }
 
-export async function planSearch(profile: Profile): Promise<SearchPlan> {
-  assertBudget();
+export async function planSearch(caller: Caller, profile: Profile, broadcast = true): Promise<SearchPlan> {
+  assertBudget(caller);
   const { domain } = profile;
   const written = await writeQueries(profile, (draft) =>
-    report(domain, { type: "queries", draft }),
+    broadcast && report(progressKey(caller, domain), { type: "queries", draft }),
   );
-  spend(written.cost);
+  spend(caller, written.cost);
 
   // One page per query: enough to measure the rate, and to catch a query
   // that returns nothing before a whole run is spent on it.
-  const queries = await Promise.all(
-    written.queries.map(async ({ q, k }, index): Promise<Query> => {
-      let n = "not measured";
-      try {
-        const sample = await searchTweets(searchString(q));
-        spendData(sample.cost);
-        n = volume(sample.data.tweets, sample.data.nextCursor === null);
-      } catch (error) {
-        console.warn(`Volume sample failed for ${q}:`, error);
-      }
-      report(domain, { type: "sample", index, n });
-      return { q, k, n };
-    }),
-  );
+  // Sequential samples stop at the first auth/balance failure, without launching
+  // the other paid samples or swallowing the failure as an empty result.
+  const queries: Query[] = [];
+  for (const [index, { q, k }] of written.queries.entries()) {
+    assertBudget(caller);
+    let n = "not measured";
+    try {
+      const sample = await searchTweets(caller, searchString(q));
+      spendData(caller, sample.cost);
+      n = volume(sample.data.tweets, sample.data.nextCursor === null);
+    } catch (error) {
+      if (!(error instanceof AisaError) || [401, 402, 403].includes(error.status)) throw error;
+    }
+    if (broadcast) report(progressKey(caller, domain), { type: "sample", index, n });
+    queries.push({ q, k, n });
+  }
 
   return { queries, filter: QUERY_FILTER, cost: written.cost };
 }
 
-/* ── Caching ─────────────────────────────────────────────────────────────── */
-
-/**
- * Reading a site costs a few cents and ten seconds, and the profile and run
- * screens both need the result. Two layers keep it to one read: a promise map
- * so concurrent callers share the read in flight, and Next's data cache so the
- * result outlives this process.
+/* One bounded, process-local cache: no Next persistent cache and no token in
+ * keys, settled entries or disk. A login owns its own work, including flights.
+ * Entries expire with that short session. Cold instances can repeat work.
  */
-const REVALIDATE_SECONDS = 24 * 60 * 60;
-
-const inflight = globalThis as typeof globalThis & {
-  __reads?: Map<string, Promise<SiteRead>>;
-  __plans?: Map<string, Promise<SearchPlan>>;
+type Entry<T> = { expiresAt: number; value: T };
+const store = globalThis as typeof globalThis & {
+  __callerProfiles?: Map<string, Entry<Promise<SiteRead | SearchPlan>>>;
 };
-const reads = (inflight.__reads ??= new Map());
-const plans = (inflight.__plans ??= new Map());
+const cache = (store.__callerProfiles ??= new Map());
+export function progressKey(caller: Caller, domain: string) { return `${caller.id}:${domain}`; }
 
-/*
- * `unstable_cache` folds the callback's source text into the key, and the
- * bundler compiles `readSite` differently for pages and for route handlers
- * (its imports get layer-specific names). Passed directly, the profile screen
- * and `/api/run` would each keep a private cache — and the run would search
- * with queries nobody was shown. These one-line wrappers read the same in
- * every bundle; bump the version tag when the work behind them changes.
- */
-const cachedRead = unstable_cache(
-  (domain: string) => readSite(domain),
-  ["site-read-v4"],
-  { revalidate: REVALIDATE_SECONDS },
-);
-
-// Keyed on the profile itself: a site that reads differently gets new searches.
-const cachedPlan = unstable_cache(
-  (profile: Profile) => planSearch(profile),
-  ["search-plan-v4"],
-  { revalidate: REVALIDATE_SECONDS },
-);
-
-function shared<T>(
-  map: Map<string, Promise<T>>,
-  key: string,
-  load: () => Promise<T>,
-  landed: () => void,
-): Promise<T> {
-  let pending = map.get(key);
-  if (!pending) {
-    pending = load();
-    map.set(key, pending);
-    // Only the flight is shared here; once it lands, the data cache answers.
-    const clear = () => {
-      map.delete(key);
-      landed();
-    };
-    pending.then(clear, clear);
-  }
+function shared<T extends SiteRead | SearchPlan>(caller: Caller, key: string, load: () => Promise<T>, landed: () => void): Promise<T> {
+  assertBudget(caller);
+  for (const [k, entry] of cache) if (entry.expiresAt <= Date.now()) cache.delete(k);
+  const existing = cache.get(key);
+  if (existing) return existing.value as Promise<T>;
+  // Refuse overflow rather than evict an in-flight request and charge twice.
+  if (cache.size >= 256) throw new Error("The website is busy. Please try again later.");
+  const pending = load();
+  cache.set(key, { expiresAt: caller.expiresAt, value: pending });
+  pending.then(landed, () => { cache.delete(key); landed(); });
   return pending;
 }
 
-export function getSiteRead(domain: string): Promise<SiteRead> {
-  return shared(
-    reads,
-    domain,
-    () => cachedRead(domain),
-    () => settle(domain, ["pages", "profile"]),
-  );
+export function getSiteRead(caller: Caller, domain: string): Promise<SiteRead> {
+  const key = progressKey(caller, domain);
+  return shared(caller, `read:${key}`, () => readSite(caller, domain), () => settle(key, ["pages", "profile"]));
 }
 
-export function getSearchPlan(domain: string): Promise<SearchPlan> {
-  // The read is awaited out here — a cached function calling another cached
-  // function re-runs the inner one, and the site gets read (and paid for) twice.
-  return shared(
-    plans,
-    domain,
-    async () => cachedPlan((await getSiteRead(domain)).profile),
-    () => settle(domain, ["queries", "sample"]),
-  );
+export async function getSearchPlan(caller: Caller, domain: string): Promise<SearchPlan> {
+  const profile = (await getSiteRead(caller, domain)).profile;
+  const key = progressKey(caller, domain);
+  const digest = createHash("sha256").update(JSON.stringify(profile)).digest("hex");
+  return shared(caller, `plan:${key}:${digest}`, () => planSearch(caller, profile), () => settle(key, ["queries", "sample"]));
 }

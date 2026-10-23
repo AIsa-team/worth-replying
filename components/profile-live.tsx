@@ -286,7 +286,7 @@ function ProfileLive({ domain, target }: { domain: string; target: number }) {
                 role="alert"
                 className="text-[17px] leading-[1.45] text-destructive"
               >
-                {error}
+                {error} <a href="/auth/login" className="underline">Sign in again</a> · <a href="https://console.aisa.one" className="underline">AIsa balance</a>
               </p>
             ) : !whatYouDo ? (
               <Working>
@@ -344,7 +344,7 @@ function ProfileLive({ domain, target }: { domain: string; target: number }) {
                   </h3>
                   {pages.map((page, i) => (
                     <Reveal
-                      key={page.path}
+                      key={`${page.path}:${i}`}
                       delay={stagger(620) + i * 90}
                       className="flex items-baseline gap-[7px] font-mono text-[10px]"
                     >
@@ -439,9 +439,9 @@ function ProfileLive({ domain, target }: { domain: string; target: number }) {
 
       <footer className="flex shrink-0 flex-wrap items-center gap-4 border-t border-border px-5 py-4 md:h-[76px] md:px-10 md:py-0">
         <p className="text-[17px]">
-          About <strong className="font-medium">{comma(target)}</strong> tweets,
+          Website-funded models: about <strong className="font-medium">{comma(target)}</strong> tweets,
           roughly a minute, <strong className="font-medium">$0.05</strong> to{" "}
-          <strong className="font-medium">$0.10</strong>.
+          <strong className="font-medium">$0.10</strong>. Your personal AIsa data charges are additional.
         </p>
         <span className="grow" />
         <p className="hidden font-mono text-[11.5px] text-muted-foreground lg:block">

@@ -1,3 +1,4 @@
+import { requirePage } from "@/lib/server/auth";
 import { redirect } from "next/navigation";
 import { ReviewList } from "@/components/review-list";
 import {
@@ -24,6 +25,7 @@ export default async function ReviewPage({
     Math.floor(Number(target)) >= 1 ? Math.floor(Number(target)) : undefined;
   const params = new URLSearchParams({ domain: host });
   if (size) params.set("target", String(size));
+  await requirePage(`/review?${params}`);
 
   return (
     <>

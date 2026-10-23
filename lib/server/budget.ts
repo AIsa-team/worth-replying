@@ -1,65 +1,46 @@
 import "server-only";
+import { assertActive, type Caller } from "./auth";
 
-/**
- * A daily spending ceiling. Every paid call reports its cost here, and the
- * pipeline stops starting new work once the day's total crosses the line.
- *
- * Two tallies, because the screens price a run by its model calls alone —
- * the profile, the searches, and jev. Data calls (AIsa) are still real money,
- * so `spendData` counts them toward the ceiling; they are just not part of the
- * figures the screens print.
- *
- * The tally lives in process memory: it is exact under `next dev` and a single
- * `next start`, and only per-instance on serverless. Move it to a shared store
- * before relying on it as a hard limit across instances.
+/** Per-login caller totals; a separate global model guard protects the site's gateway.
+ * Both are per process, approximate under concurrency, and reset at midnight UTC.
+ * Personal data spend never consumes another caller's allowance.
  */
 export const DAILY_BUDGET_USD = Number(process.env.DAILY_BUDGET_USD ?? 5);
-
-type Tally = { day: string; usd: number; shown: number };
-
-const store = globalThis as typeof globalThis & { __spend?: Tally };
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
+type Tally = { usd: number; shown: number };
+const store = globalThis as typeof globalThis & {
+  __callerSpend?: { day: string; model: number; callers: Map<string, Tally> };
+};
+function ledger() {
+  const day = new Date().toISOString().slice(0, 10);
+  if (store.__callerSpend?.day !== day) store.__callerSpend = { day, model: 0, callers: new Map() };
+  return store.__callerSpend;
 }
-
-function tally(): Tally {
-  if (store.__spend?.day !== today()) {
-    store.__spend = { day: today(), usd: 0, shown: 0 };
+function tally(caller: Caller) {
+  const entries = ledger().callers;
+  let value = entries.get(caller.id);
+  if (!value) {
+    value = { usd: 0, shown: 0 };
+    entries.set(caller.id, value);
   }
-  // A tally left in memory by an older build of this module may lack a field.
-  store.__spend.shown ||= 0;
-  return store.__spend;
+  return value;
 }
-
-/** A model call: counted, and part of every price the screens print. */
-export function spend(usd: number) {
+export function spend(caller: Caller, usd: number) {
   if (!(usd > 0)) return;
-  tally().usd += usd;
-  tally().shown += usd;
+  tally(caller).usd += usd;
+  tally(caller).shown += usd;
+  ledger().model += usd;
 }
-
-/** A data call: counted toward the ceiling, never printed. */
-export function spendData(usd: number) {
-  if (usd > 0) tally().usd += usd;
+export function spendData(caller: Caller, usd: number) {
+  if (usd > 0) tally(caller).usd += usd;
 }
-
-/** Today's model spend — the figure the header shows. */
-export function spentToday() {
-  return tally().shown;
+export function spentToday(caller: Caller) { return tally(caller).shown; }
+export function overBudget(caller: Caller) {
+  return tally(caller).usd >= DAILY_BUDGET_USD || ledger().model >= DAILY_BUDGET_USD;
 }
-
-export function overBudget() {
-  return tally().usd >= DAILY_BUDGET_USD;
-}
-
 export class BudgetError extends Error {
-  constructor() {
-    super("Today's spending limit is reached. It resets at midnight UTC.");
-    this.name = "BudgetError";
-  }
+  constructor() { super("The website's daily spending guard has been reached. Try again after midnight UTC."); }
 }
-
-export function assertBudget() {
-  if (overBudget()) throw new BudgetError();
+export function assertBudget(caller: Caller) {
+  assertActive(caller);
+  if (overBudget(caller)) throw new BudgetError();
 }
