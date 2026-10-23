@@ -1,3 +1,4 @@
+import { requirePage } from "@/lib/server/auth";
 import { redirect } from "next/navigation";
 import { ProfileLive } from "@/components/profile-live";
 import { SiteHeader } from "@/components/site-header";
@@ -14,6 +15,7 @@ export default async function ProfilePage({
   const { domain } = await searchParams;
   const host = parseDomain(domain ?? DEFAULT_DOMAIN);
   if (!host) redirect("/");
+  await requirePage(`/profile?domain=${encodeURIComponent(host)}`);
 
   return (
     <>

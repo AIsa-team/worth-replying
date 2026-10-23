@@ -11,7 +11,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "engines": {
     "node": ">=22"
@@ -21,6 +23,7 @@
     "ai": "^7.0.105",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.3.0",
+    "iron-session": "^9.0.1",
     "lucide-react": "^1.46.0",
     "next": "16.3.5",
     "react": "19.2.8",

@@ -137,7 +137,7 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
           <Stat value={f.decisions} label="TYPED DECISIONS BY JEV" />
           <Stat value={f.authors} label="AUTHORS" />
           <Stat value={f.elapsed} label="SECONDS ELAPSED" />
-          <Stat value={f.cost} label="SPENT SO FAR" accent />
+          <Stat value={f.cost} label="MODELS · WEBSITE-FUNDED" accent />
         </div>
 
         <div
@@ -174,7 +174,7 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
                 role="alert"
                 className="font-mono text-[10px] text-destructive"
               >
-                {f.note}
+                {f.note} <a href="/auth/login" className="underline">Sign in again</a> · <a href="https://console.aisa.one" className="underline">AIsa balance</a>
               </p>
             )}
 
@@ -233,7 +233,7 @@ function RunConsole({ domain, target }: { domain: string; target: number }) {
                   f.running && "animate-pulse",
                 )}
               >
-                {f.note}
+                {f.note} <a href="/auth/login" className="underline">Sign in again</a> · <a href="https://console.aisa.one" className="underline">AIsa balance</a>
               </p>
             )}
           </section>

@@ -1,3 +1,4 @@
+import { session } from "@/lib/server/auth";
 import Link from "next/link";
 import Image from "next/image";
 import { cn } from "cn";
@@ -6,7 +7,8 @@ import { cn } from "cn";
  * The masthead rule that opens every screen: wordmark on the left, whatever
  * the screen wants to say on the right.
  */
-function SiteHeader({ className, children }: React.ComponentProps<"header">) {
+async function SiteHeader({ className, children }: React.ComponentProps<"header">) {
+  const caller = await session();
   return (
     <header
       className={cn(
@@ -37,6 +39,15 @@ function SiteHeader({ className, children }: React.ComponentProps<"header">) {
         </Link>
       </div>
       {children}
+      <div className="ml-auto flex shrink-0 items-center gap-3 font-mono text-[11px]">
+        {caller ? <details className="relative">
+          <summary className="cursor-pointer text-ember">Account</summary>
+          <div className="absolute right-0 top-full z-20 mt-3 grid min-w-36 gap-4 rounded-md border border-border bg-background p-4 shadow-lg">
+            <a href="https://console.aisa.one" className="hover:underline">AIsa balance</a>
+            <form action="/auth/logout" method="post"><button className="text-ember underline underline-offset-4">Sign out</button></form>
+          </div>
+        </details> : <a href="/auth/login" className="text-ember underline underline-offset-4">Sign in</a>}
+      </div>
     </header>
   );
 }

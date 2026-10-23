@@ -1,3 +1,4 @@
+import { authorize, PRIVATE_HEADERS } from "@/lib/server/auth";
 import { z } from "zod";
 import { problemFrom, profileSchema, readBody } from "@/lib/server/http";
 import { planSearch } from "@/lib/server/profile";
@@ -11,11 +12,13 @@ const bodySchema = z.object({ profile: profileSchema });
  * calling it is that the profile just changed.
  */
 export async function POST(request: Request) {
+  const caller = await authorize(request);
+  if (caller instanceof Response) return caller;
   const body = await readBody(request, bodySchema);
   if (body instanceof Response) return body;
 
   try {
-    return Response.json(await planSearch(body.profile));
+    return Response.json(await planSearch(caller, body.profile, false), { headers: PRIVATE_HEADERS });
   } catch (error) {
     return problemFrom(error);
   }

@@ -11,7 +11,7 @@ export async function postNdjson<Event>(
 ) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Worth-Session": browserScope() },
     body: JSON.stringify(body),
     signal,
   });
@@ -33,4 +33,9 @@ export async function postNdjson<Event>(
       if (line) onEvent(JSON.parse(line) as Event);
     }
   }
+}
+
+/** Public session namespace only; authentication remains the HttpOnly cookie. */
+export function browserScope() {
+  return document.querySelector<HTMLMetaElement>('meta[name="worth-session"]')?.content ?? "signed-out";
 }

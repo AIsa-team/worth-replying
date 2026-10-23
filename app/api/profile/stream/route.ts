@@ -1,7 +1,8 @@
+import { authorize, PRIVATE_HEADERS } from "@/lib/server/auth";
 import { z } from "zod";
 import type { ProfileEvent } from "@/lib/run-types";
 import { domainSchema, explain, readBody } from "@/lib/server/http";
-import { getSearchPlan, getSiteRead } from "@/lib/server/profile";
+import { getSearchPlan, getSiteRead, progressKey } from "@/lib/server/profile";
 import { watch } from "@/lib/server/progress";
 
 export const maxDuration = 120;
@@ -18,6 +19,8 @@ const bodySchema = z.object({ domain: domainSchema });
  * and a reader who leaves early does not stop a read others may be sharing.
  */
 export async function POST(request: Request) {
+  const caller = await authorize(request);
+  if (caller instanceof Response) return caller;
   const body = await readBody(request, bodySchema);
   if (body instanceof Response) return body;
   const { domain } = body;
@@ -38,10 +41,10 @@ export async function POST(request: Request) {
         }
       };
 
-      const unwatch = watch(domain, send);
+      const unwatch = watch(progressKey(caller, domain), send);
       try {
-        send({ type: "read", read: await getSiteRead(domain) });
-        send({ type: "plan", plan: await getSearchPlan(domain) });
+        send({ type: "read", read: await getSiteRead(caller, domain) });
+        send({ type: "plan", plan: await getSearchPlan(caller, domain) });
       } catch (error) {
         send({ type: "error", message: explain(error) });
       } finally {
@@ -54,7 +57,8 @@ export async function POST(request: Request) {
   return new Response(stream, {
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
+      ...PRIVATE_HEADERS,
+      "Cache-Control": "private, no-store, no-transform",
       "X-Accel-Buffering": "no",
     },
   });

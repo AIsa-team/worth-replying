@@ -1,3 +1,4 @@
+import { authorize, PRIVATE_HEADERS } from "@/lib/server/auth";
 import { z } from "zod";
 import { BudgetError, overBudget } from "@/lib/server/budget";
 import {
@@ -23,9 +24,11 @@ const bodySchema = z.object({
  * the connection stops the run; what was already sent is the client's to keep.
  */
 export async function POST(request: Request) {
+  const caller = await authorize(request);
+  if (caller instanceof Response) return caller;
   const body = await readBody(request, bodySchema);
   if (body instanceof Response) return body;
-  if (overBudget()) return problemFrom(new BudgetError());
+  if (overBudget(caller)) return problemFrom(new BudgetError());
 
   const stop = new AbortController();
   const signal = AbortSignal.any([request.signal, stop.signal]);
@@ -34,7 +37,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const event of run(body, signal)) {
+        for await (const event of run(caller, body, signal)) {
           controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
         }
         controller.close();
@@ -51,7 +54,8 @@ export async function POST(request: Request) {
   return new Response(stream, {
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
+      ...PRIVATE_HEADERS,
+      "Cache-Control": "private, no-store, no-transform",
       "X-Accel-Buffering": "no",
     },
   });

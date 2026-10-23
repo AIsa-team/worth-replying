@@ -6,9 +6,7 @@ No keywords, no forms, nothing to set up. Every call on every tweet is made by [
 
 **[Live demo → worth-replying.aisa.one](https://worth-replying.aisa.one)**
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAIsa-team%2Fworth-replying&env=AISA_API_KEY&envDescription=AIsa%20reads%20the%20site%20and%20searches%20X.%20The%20AI%20Gateway%20needs%20no%20key%20on%20Vercel.&envLink=https%3A%2F%2Fgithub.com%2FAIsa-team%2Fworth-replying%23environment-variables&project-name=worth-replying&repository-name=worth-replying)
-
-> **Built on [AIsa](https://aisa.one)** — the unified resource and transaction network for AI agents. Everything this app knows about the outside world — the website it reads, the tweets it searches — comes through one AIsa key. [More below ↓](#about-aisa)
+> **Built on [AIsa](https://aisa.one)** — sign in with your AIsa account. Website reads and X searches are charged to **your personal AIsa balance**. Worth Replying pays for profile/query generation and jev through Vercel AI Gateway. No database is required.
 
 ## How it works
 
@@ -59,9 +57,9 @@ This project is a small, complete example of what that buys you. It needs two ve
 | Find the conversations | `GET /twitter/tweet/advanced_search` | tweets with authors, newest first |
 | Know what it cost | every response | the real charge, in the `x-aisa-customer-cost-micros-usd` header |
 
-That last row is why the running ledger and the daily budget in this app are exact rather than estimated: every AIsa response says what it cost.
+The cost header records actual AIsa data charges. On-screen dollar totals show only website-funded model calls; personal AIsa data charges are additional.
 
-The same key reaches a lot more than this demo uses:
+The AIsa platform offers more than this demo uses:
 
 - **Models** — an OpenAI-compatible gateway to the major model families.
 - **Data APIs** — web and news search, X/Twitter, Reddit, YouTube, company and people data, financial and market data, academic search, prediction markets.
@@ -78,38 +76,48 @@ Requires **Node 22+** and **pnpm**.
 git clone https://github.com/AIsa-team/worth-replying.git
 cd worth-replying
 pnpm install
-cp .env.example .env   # then fill in the two keys
+cp .env.example .env.local   # configure OAuth, cookie encryption, and the model gateway
 pnpm dev
 ```
 
-Open <http://localhost:3000>. For a cheap first run, add `?target=40` to the run page URL — it reads 40 tweets instead of 1,000.
+Complete the one-time OAuth client setup below, then open <http://localhost:3000>. The homepage is public. Enter a domain and click Find to open the AIsa sign-in prompt; successful sign-in resumes that domain. Account controls sit at the right of the existing header. For a cheap first run, add `?target=40` to the run page URL — it reads 40 tweets instead of 1,000.
 
-## Environment variables
+## OAuth and deployment setup
 
-| Variable | Required | Default | |
-| --- | --- | --- | --- |
-| `AISA_API_KEY` | yes | — | [AIsa](https://aisa.one) key: reads the website and searches X. Sign up at [aisa.one](https://aisa.one). |
-| `AI_GATEWAY_API_KEY` | locally | — | [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) key: the language model and jev. On Vercel it is not needed — deployments authenticate to the gateway by OIDC. |
-| `LLM_MODEL` | no | `anthropic/claude-sonnet-5` | Writes the profile and the searches. Any gateway language model id. |
-| `JEV_MODEL` | no | `typesafe-ai/jev` | Scores each tweet. |
-| `RUN_TWEET_TARGET` | no | `1000` | Tweets one run reads. |
-| `DAILY_BUDGET_USD` | no | `5` | Stops new paid work once the day's spend passes this. See the caveat below. |
+Register **one stable Worth Replying web OAuth client** with AIsa/Clerk through your approved operator process. This app never registers clients during login and has no database or new tables. Use the authorization-code grant, response type `code`, and PKCE `S256`. Register exact callback URIs for each environment, for example:
+
+- `http://localhost:3000/auth/callback`
+- `https://worth-replying.aisa.one/auth/callback`
+
+Use `token_endpoint_auth_method=none` for a public PKCE client, or `client_secret_basic` for a confidential server client. Set the secret only for the latter. Allowed/requested scopes are `openid profile email`. Do **not** add `user:org:read` (organization selection) or `offline_access`: this app uses personal billing and does not retain refresh tokens.
+
+The fixed trusted endpoints are `https://clerk.aisa.one/oauth/authorize` and `/oauth/token`; client registration is available at `/oauth/register` for operators. Data calls use `https://api.aisa.one/apis/v1` with the caller's access token. There is **no deployment-key fallback**.
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `APP_ORIGIN` | yes in deployment | Canonical origin, e.g. `https://worth-replying.aisa.one`; no path. Used for callback/return destinations and Origin validation; request Host headers are never trusted. HTTP is allowed only for localhost/127.0.0.1 development. |
+| `AISA_OAUTH_CLIENT_ID` | yes | Stable pre-registered OAuth client with matching callback URIs. |
+| `AISA_OAUTH_CLIENT_SECRET` | confidential clients | Only for `client_secret_basic`; omit for public PKCE clients. Server-only. |
+| `AISA_AUTH_SECRET` | yes | At least 32 characters of cryptographically random encryption material; generate with `openssl rand -base64 32`. Keep stable across deployment instances. Rotating it signs everyone out. |
+| `AI_GATEWAY_API_KEY` | locally | Website-funded Vercel AI Gateway credential. On Vercel, deployment OIDC is used instead; enable AI Gateway for the team. |
+| `LLM_MODEL` | no | `anthropic/claude-sonnet-5` by default. |
+| `JEV_MODEL` | no | `typesafe-ai/jev` by default. |
+| `RUN_TWEET_TARGET` | no | `1000` by default. |
+| `DAILY_BUDGET_USD` | no | `5` by default; approximate per-process guard, described below. |
+
+Configure these server-only variables in each deployment environment **before** releasing. Preview deployments need their own registered canonical callback origin; do not derive it from untrusted forwarding headers. Keep secrets out of `NEXT_PUBLIC_*`, source control, build output and client props. Remove the former shared AIsa deployment credential from the deployment configuration. No production configuration or external client creation is performed by the app.
+
+Sessions are encrypted/authenticated `iron-session` HttpOnly, SameSite=Lax cookies, Secure with `__Host-` names on HTTPS and no Domain attribute. OAuth transaction cookies expire after 10 minutes. Access sessions expire 30 seconds before the token, capped at one hour, and oversized seals are rejected. No refresh or ID token is stored. When a session ends, sign in again; an existing AIsa SSO session can complete that flow without entering credentials again. A revoked/denied token produces an actionable sign-in message.
+
+Logout is a same-origin POST that removes the local cookies and asks the browser to clear cached storage; it does not sign out of AIsa globally or revoke the access token. As with any stateless cookie-only session, a copied cookie remains usable until its short expiry (there is no server-side revocation database). Browser snapshots are scoped to a random public login namespace; old account tabs reject paid requests after account switches and recheck on focus/periodically.
 
 ## Deploy to Vercel
 
-Use the button at the top, or:
-
-```bash
-vercel link
-vercel env add AISA_API_KEY
-vercel deploy --prod
-```
-
-Only `AISA_API_KEY` has to be set. The AI SDK picks up the deployment's OIDC token for the AI Gateway on its own; make sure AI Gateway is enabled for your team. The run endpoint streams for up to five minutes (`maxDuration = 300`), which fits within Vercel's limits with Fluid Compute, on by default for new projects.
+Connect the repository and configure the variables above, then use your usual reviewed Vercel release process. Model inference still uses the deployment's OIDC token. The run endpoint streams for up to five minutes (`maxDuration = 300`), within Vercel Fluid Compute limits. OAuth login alone cannot fix an empty personal AIsa balance, nor an unavailable website-funded AI Gateway.
 
 ## What a run costs
 
-Two services bill per call, and **the figures on screen show only one of them**. The console and the profile page price a run by its model calls — the profile, the searches, and jev. The data calls to AIsa are counted toward the daily budget but are not part of the printed numbers.
+Two funding sources pay per call. **Your personal AIsa balance pays for website crawl/extraction and X search, including volume samples. Worth Replying pays for profile/query models and jev through its existing Vercel AI Gateway.** On-screen prices show only those website-funded model calls; personal AIsa data charges are additional. Historical estimates below are not a price guarantee.
 
 Measured, for a 1,000-tweet run:
 
@@ -122,30 +130,33 @@ Measured, for a 1,000-tweet run:
 | jev, 1,000 tweets × 5 answers | $0.04 |
 | **Total** | **≈ $0.40**, of which about $0.07 is shown on screen |
 
-The site read and the search plan are cached per domain for a day, so a second run on the same domain pays only for search and jev. Narrow topics often have fewer than 1,000 matching tweets in a week; the run then ends early and says so.
+The site read and search plan are reused per login and domain in a bounded process-memory cache until the access session expires. Concurrent same-login readers on one server instance share the same flight; other callers never share it. Cold starts, different server instances, re-login, or cache loss can repeat and charge work. No credentials or profile results are persisted in Next’s data cache. A second run on the same warm instance pays only for search and jev. Narrow topics often have fewer than 1,000 matching tweets in a week; the run then ends early and says so.
 
 ## Before you put it on the internet
 
-This is a demo, and it spends money when someone opens a page.
+The homepage is public; login protects profile/run/review pages and all paid APIs. Starting profile/run workflows still spends money; authentication is not rate limiting.
 
-- **There is no authentication and no rate limiting.** Anyone who can reach the deployment can start runs on your keys. Put it behind [Vercel Deployment Protection](https://vercel.com/docs/deployment-protection), your own auth, or keep it local.
+- **Model inference remains website-funded.** Authenticated users can spend the site’s gateway allowance. There is no rate limiter; use gateway spend limits and deployment controls for public traffic.
 - **Opening `/run` starts a run.** So does reloading it. Moving between the run and review screens does not; the run in progress is shared.
-- **The daily budget is a guard rail, not a hard limit.** It is held in process memory: exact under `pnpm dev` or a single `next start`, but per instance on serverless. Set real spend limits on your AIsa and AI Gateway keys as well.
+- **The daily budget is a guard rail, not a hard limit.** Caller data/model tallies are isolated per login; a separate site-wide model tally protects the gateway. Both use `DAILY_BUDGET_USD`, reset at midnight UTC, are approximate under concurrent requests and per instance on serverless. Personal data costs cannot exhaust another caller’s allowance. Re-login resets the caller namespace. Set real account/gateway limits as well.
 - **Tweet text is untrusted input.** It is only ever passed to jev as state to be scored; jev returns typed values and cannot be talked into doing anything. The website text goes to a language model with instructions to treat it as material, never as instructions.
 
 ## API
 
-All endpoints take and return JSON. The two streaming ones return newline-delimited JSON, one event per line.
+All paid endpoints require the encrypted login cookie and an `Origin` header matching `APP_ORIGIN`; unauthenticated requests return JSON HTTP 401 before a stream or paid work starts. Authenticated cross-origin POSTs return 403. All endpoints take and return JSON. The two streaming ones return newline-delimited JSON, one event per line.
 
 | Endpoint | |
 | --- | --- |
-| `POST /api/profile` | `{ domain }` → `{ read, plan, spentToday }`. Reads the site and writes the searches. Cached per domain. |
+| `POST /api/profile` | `{ domain }` → `{ read, plan, spentToday }`. Reads the site and writes the searches. Reused per login/domain on a warm server instance. |
 | `POST /api/profile/stream` | `{ domain }` → NDJSON `ProfileEvent`s: pages read, the profile and queries as they are written, each query's measured volume, then the final `read` and `plan`. |
 | `POST /api/queries` | `{ profile }` → `SearchPlan`. Rewrites the searches from an edited profile. Never cached. |
 | `POST /api/run` | `{ domain, target?, profile?, queries? }` → NDJSON `RunEvent`s: `start`, `search`, `decision`, `skipped`, then `done` or `error`. Closing the connection stops the run. |
 
 ```bash
+# Use your local authenticated browser cookie jar; never publish it.
 curl -N -X POST http://localhost:3000/api/run \
+  -b /secure/path/browser-cookie-jar \
+  -H 'Origin: http://localhost:3000' \
   -H 'Content-Type: application/json' \
   -d '{"domain":"typesafe.ai","target":20}'
 ```
@@ -176,7 +187,8 @@ lib/
     llm.ts                  site → profile, profile → searches (streamed structured output)
     jev.ts                  the five questions, with a deadline and retry per call
     profile.ts              read + plan, cached and shared between screens
-    progress.ts             side channel that lets a cached job report as it works
+    progress.ts             caller-scoped in-memory progress channel
+    auth.ts                 cookie-only OAuth PKCE sessions and authorization
     run.ts                  search lanes feeding an 8-wide jev pool
     budget.ts               the daily spending ceiling
 ```
@@ -193,7 +205,13 @@ lib/
 
 ## Contributing
 
-Issues and pull requests are welcome. `pnpm build` type-checks the project; please make sure it passes. If you are changing how tweets are judged, include a few before-and-after examples — the prompts are the product here.
+`pnpm test` runs actual Next HTTP workflows with **mocked OAuth, AIsa, and AI Gateway**, blocking other external calls. It checks callback/state/PKCE/cookie failures, caller/cache/progress/budget isolation, all paid-route gates, safe redirects, logout, and auth/balance failures. Test fixtures are process preloads only; production has no mock routes. Tests use an isolated Next output directory and random local port.
+
+`pnpm typecheck` generates Next route types and checks TypeScript. `pnpm build` checks the production build (Google font downloads require network access).
+
+The opt-in `tests/real-aisa.test.mjs` is **skipped by default**. With an operator-provided OAuth access token in `AISA_REAL_ACCESS_TOKEN`, it checks real nonbillable personal balance access. Setting `AISA_REAL_DATA_SMOKE=1` also explicitly enables one billable extraction of `https://example.com`, checking balance before/after. Run `node --test tests/real-aisa.test.mjs`; supply credentials through your secure environment, never command history or committed files. This smoke does not establish that deployed browser OAuth configuration or a complete gateway-backed run works. Those require a registered client, an interactive login, and an approved test account/release environment.
+
+Issues and pull requests are welcome; please make sure it passes. If you are changing how tweets are judged, include a few before-and-after examples — the prompts are the product here.
 
 ## License
 

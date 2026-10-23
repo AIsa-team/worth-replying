@@ -1,9 +1,10 @@
 import "server-only";
 
+import { assertActive, type Caller } from "./auth";
 import type { Tweet } from "@/lib/run-types";
 
 /**
- * AIsa data APIs — https://aisa.one/docs/api-reference. One Bearer key covers
+ * AIsa data APIs — https://aisa.one/docs/api-reference. The caller’s OAuth bearer covers
  * every endpoint; each response reports what it cost in a header, so callers
  * get the real charge back instead of an estimate.
  */
@@ -32,11 +33,11 @@ type CallOptions = {
 type Costed<T> = { data: T; cost: number };
 
 async function call<T>(
+  caller: Caller,
   path: string,
   { method = "GET", query, body, signal, timeoutMs = 30_000 }: CallOptions,
 ): Promise<Costed<T>> {
-  const key = process.env.AISA_API_KEY;
-  if (!key) throw new AisaError(500, "AISA_API_KEY is not set");
+  assertActive(caller);
 
   const url = new URL(BASE_URL + path);
   for (const [k, v] of Object.entries(query ?? {})) {
@@ -44,11 +45,12 @@ async function call<T>(
   }
 
   for (let attempt = 0; ; attempt++) {
+    assertActive(caller);
     const timeout = AbortSignal.timeout(timeoutMs);
     const res = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${key}`,
+        Authorization: `Bearer ${caller.accessToken}`,
         ...(body !== undefined && { "Content-Type": "application/json" }),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -67,8 +69,12 @@ async function call<T>(
       await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
       continue;
     }
-    const detail = (await res.text()).slice(0, 300);
-    throw new AisaError(res.status, `AIsa ${path} → ${res.status}: ${detail}`);
+    await res.body?.cancel();
+    throw new AisaError(res.status, res.status === 402
+      ? "Your personal AIsa balance cannot cover this request. Top up or check your account at https://console.aisa.one, then try again."
+      : res.status === 401 || res.status === 403
+        ? "AIsa authorization expired or was denied. Sign in again at /auth/login."
+        : "The AIsa data service did not answer. Try again later.");
   }
 }
 
@@ -103,10 +109,11 @@ const SKIP_PATHS = [
  * sites it filtered out everything but the homepage.
  */
 export async function crawlSite(
+  caller: Caller,
   domain: string,
   { limit = 6, signal }: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<Costed<SitePage[]>> {
-  const { data, cost } = await call<CrawlResponse>("/tavily/crawl", {
+  const { data, cost } = await call<CrawlResponse>(caller, "/tavily/crawl", {
     method: "POST",
     body: {
       url: `https://${domain}`,
@@ -124,10 +131,11 @@ export async function crawlSite(
 
 /** Fetch pages you can already name. Cheaper than a crawl. */
 export async function extractPages(
+  caller: Caller,
   urls: string[],
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<Costed<SitePage[]>> {
-  const { data, cost } = await call<ExtractResponse>("/tavily/extract", {
+  const { data, cost } = await call<ExtractResponse>(caller, "/tavily/extract", {
     method: "POST",
     body: { urls, format: "markdown" },
     signal,
@@ -184,10 +192,12 @@ export type TweetPage = {
  * X's own operators — `"quoted phrase"`, `OR`, `min_faves:`, `since:`.
  */
 export async function searchTweets(
+  caller: Caller,
   query: string,
   { cursor, signal }: { cursor?: string; signal?: AbortSignal } = {},
 ): Promise<Costed<TweetPage>> {
   const { data, cost } = await call<SearchResponse>(
+    caller,
     "/twitter/tweet/advanced_search",
     {
       query: { query, queryType: "Latest", cursor },
