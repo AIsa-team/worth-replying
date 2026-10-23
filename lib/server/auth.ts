@@ -68,7 +68,7 @@ export function assertActive(caller: Caller) {
 
 export async function requirePage(returnTo = "/") {
   const caller = await session();
-  if (!caller) redirect(`/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
+  if (!caller) redirect(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
   return caller;
 }
 

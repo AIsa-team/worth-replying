@@ -66,7 +66,7 @@ test('public home is accessible, protected pages redirect and ALL paid APIs reje
   for (const path of ['/profile', '/run', '/review']) {
     const response = await request(path);
     assert.equal(response.status, 307, path);
-    assert.match(response.headers.get('location'), /^\/sign-in/);
+    assert.match(response.headers.get('location'), /^\/auth\/login\?/);
   }
   for (const path of ['/api/profile', '/api/profile/stream', '/api/queries', '/api/run']) {
     const response = await post(path);
@@ -108,7 +108,7 @@ test('missing/mismatched/tampered/expired transaction, PKCE denial, replay witho
     if (kind === 'expired') cookie = `worth-oauth=${await sealData({ ...tx, expiresAt: Date.now() - 1000 }, { password, ttl: 600 })}`;
     if (kind === 'pkce') setConfig({ pkce: 'different-verifier' });
     const response = await request(`/auth/callback?code=${kind === 'bad-code' ? 'bad-code' : kind === 'oversize' ? 'oversize' : 'A'}&state=${state}`, { headers: { Cookie: cookie } });
-    assert.equal(response.headers.get('location'), `${origin}/sign-in?error=callback`, kind);
+    assert.equal(response.headers.get('location'), `${origin}/?authError=callback`, kind);
     assert.equal(cookieFrom(response, 'worth-session'), undefined, kind);
     assert.match(response.headers.get('set-cookie'), /Max-Age=0/);
   }
@@ -130,12 +130,40 @@ test('protected-page sign-in preserves domain and bounded target through the cal
     const gate = await request(path);
     assert.equal(gate.status, 307);
     const signIn = new URL(gate.headers.get('location'), origin);
+    assert.equal(signIn.pathname, '/auth/login');
     const returnTo = signIn.searchParams.get('returnTo');
     assert.equal(returnTo, path);
     const { callback } = await login('return-parameters', returnTo);
     assert.equal(callback.headers.get('location'), origin + path);
   }
   assert.equal(calls().filter(call => call.kind !== 'oauth').length, count);
+});
+
+test('legacy sign-in forwards to OAuth; failed callbacks recover on the public home without a retry loop', async () => {
+  const before = calls().length;
+  const destination = '/review?domain=resend.com&target=40';
+  const legacy = await request(`/sign-in?returnTo=${encodeURIComponent(destination)}`);
+  assert.equal(legacy.status, 307);
+  const loginUrl = new URL(legacy.headers.get('location'), origin);
+  assert.equal(loginUrl.pathname, '/auth/login');
+  assert.equal(loginUrl.searchParams.get('returnTo'), destination);
+  const start = await request(loginUrl.pathname + loginUrl.search);
+  assert.equal(new URL(start.headers.get('location')).origin, 'https://clerk.aisa.one');
+  assert.equal((await unpack(cookieFrom(start, 'worth-oauth'))).returnTo, destination);
+
+  for (const path of ['/auth/callback?error=access_denied', '/sign-in?error=callback']) {
+    const failure = await request(path);
+    assert.equal(failure.status, 307);
+    assert.equal(new URL(failure.headers.get('location'), origin).href, `${origin}/?authError=callback`);
+    const home = await request('/?authError=callback');
+    assert.equal(home.status, 200);
+    assert.equal(home.headers.get('location'), null);
+    const html = await home.text();
+    assert.match(html, /Give it a domain/);
+    assert.match(html, /Sign-in could not be completed/);
+    assert.doesNotMatch(html, /<h1[^>]*>Sign in to AIsa/);
+  }
+  assert.equal(calls().length, before);
 });
 
 test('expired/tampered sessions reject every paid route without calls; cookie auth cannot be used cross-origin', async () => {
@@ -222,7 +250,7 @@ test('POST logout is same-origin only, clears both cookies/storage, and subseque
   assert.equal((await request('/auth/logout')).status, 405);
   assert.equal((await post('/auth/logout', cookie, {}, { Origin: 'https://evil.example' })).status, 403);
   const response = await post('/auth/logout', cookie);
-  assert.equal(response.status, 303); assert.equal(response.headers.get('location'), `${origin}/sign-in`);
+  assert.equal(response.status, 303); assert.equal(response.headers.get('location'), `${origin}/`);
   assert.equal(response.headers.getSetCookie().filter(value => /Max-Age=0/.test(value)).length, 2);
   assert.match(response.headers.get('clear-site-data'), /storage/);
   assert.equal((await post('/api/profile')).status, 401);

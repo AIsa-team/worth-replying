@@ -2,8 +2,9 @@ import { session } from "@/lib/server/auth";
 import { DomainForm } from "@/components/domain-form";
 import { SiteHeader } from "@/components/site-header";
 
-export default async function Home() {
+export default async function Home({ searchParams }: PageProps<"/">) {
   const caller = await session();
+  const params = await searchParams;
   return (
     <>
       <SiteHeader>
@@ -27,7 +28,7 @@ export default async function Home() {
           </p>
         </div>
 
-        <DomainForm signedIn={Boolean(caller)} />
+        <DomainForm signedIn={Boolean(caller)} signInError={params.authError === "callback"} />
 
         <div className="flex w-full max-w-[660px] flex-col gap-[9px] pt-1">
           <div className="rule-strong" />

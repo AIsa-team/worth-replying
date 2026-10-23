@@ -14,7 +14,7 @@ export function AccountBoundary({ scope }: { scope: string }) {
         const data = await res.json();
         if (data.scope !== scope) {
           stopRun();
-          window.location.replace("/sign-in");
+          window.location.replace("/");
         }
       } catch { /* paid endpoints still fail closed if connectivity is lost */ }
     };
