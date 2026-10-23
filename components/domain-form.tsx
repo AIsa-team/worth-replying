@@ -16,11 +16,11 @@ function normalize(value: string) {
     .replace(/\/.*$/, "");
 }
 
-function DomainForm({ signedIn }: { signedIn: boolean }) {
+function DomainForm({ signedIn, signInError = false }: { signedIn: boolean; signInError?: boolean }) {
   const router = useRouter();
   const [domain, setDomain] = useState(DEFAULT_DOMAIN);
   const [destination, setDestination] = useState("/");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(signInError ? "Sign-in could not be completed. Try again using Find or Sign in." : "");
   const dialog = useRef<HTMLDialogElement>(null);
 
   function go(value: string) {

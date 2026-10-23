@@ -6,6 +6,6 @@ export async function GET(request: Request) {
     const destination = await finishLogin(new URL(request.url));
     return NextResponse.redirect(new URL(destination, authConfig().origin), { headers: PRIVATE_HEADERS });
   } catch {
-    return NextResponse.redirect(new URL("/sign-in?error=callback", authConfig().origin), { headers: PRIVATE_HEADERS });
+    return NextResponse.redirect(new URL("/?authError=callback", authConfig().origin), { headers: PRIVATE_HEADERS });
   }
 }
